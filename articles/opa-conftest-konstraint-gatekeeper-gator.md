@@ -3,7 +3,7 @@ title: "Conftest,Gatekeeperを用いたKubernetesマニフェストバリデー�
 emoji: "🌸"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["kubernetes", "konstraint", "conftest", "gatekeeper", "gator"]
-published: false
+published: true
 ---
 
 - [Abstract](#abstract)
