@@ -52,20 +52,22 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
 
 本文書では上記を加味した上で、設計・構築を行う。登場リソースは以下の通り。
 
-| リソース            | 説明                 |
-| :------------------ | :------------------- |
-| GitHub              | ソースコード管理     |
-| GitHub Organization | チーム管理           |
-| GitHub Actions      | CI                   |
-| ArgoCD              | CD                   |
-| AWS                 | クラウド             |
-| EKS                 | Kubernetesクラスター |
+| リソース               | 説明
+| :------------------| :-------------------
+| GitHub             | ソースコード管理
+| GitHub Organization| チーム管理
+| GitHub Actions     | CI
+| ArgoCD             | CD
+| AWS                | クラウド
+| EKS                | Kubernetesクラスター
 
 ## アーキテクチャの説明
 
+本節ではアーキテクチャを様々な観点から説明する。
+
 ### CICD全体像
 
-本節では全体像を解説する。本節は全体像を説明することに注力し、実際にどのように実現するかは、後の節で詳しく説明する。
+本小節では全体像を解説する。本節は全体像を説明することに注力し、実際にどのように実現するかは、後の節で詳しく説明する。
 
 以下図にCICDアーキテクチャの全体像を示す。
 
@@ -93,12 +95,26 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
       - GitHubイベントに応じてCICDをトリガーする際、同じリポジトリだと（作り込みを行わない限り）関係ないリソースの変更に応じてCICD全体がトリガーされてしまう
       - 最悪の場合無限ループに陥る
     - ガバナンスのため
-      - Gitリポジトリの権限分割は、リポジトリ単位・ブランチ単位がある。GitHub・GitLab等の主要なVCSにおいて、認可用のロールはリポジトリ単位で振られる。
-        - リポジトリ単位で分けると運用者・開発者ごとにロールを振ることができ、認可が非常に楽になる
+      - Gitリポジトリの権限分割は、リポジトリ単位・ブランチ単位がある。GitHub・GitLab等の主要なVCSにおいて、認可用のロールはリポジトリ単位で振られる
+        - リポジトリ単位で分けると運用者・開発者ごとにロールを振ることができ、認可設計し易い
       - CDツールのアクセス対象を分割するため
     - その他、[ArgoCDのベストプラクティス][argocd-best-practices]に詳述されているため参照
 
-### GitHubブランチ・イベント戦略
+### GitHubブランチ・イベント
+
+本小節ではGitHubブランチ戦略、またGitHubイベントを説明する。  
+ブランチ戦略を複雑にすればガバナンスやリリース管理は厳密になるが、一方で運用負荷が上昇する。変更の取り込み漏れなどの、ミスが発生するもとにもなる。  
+このあたりの事情は[Git Flow][git-flow]・[GitHub Flow][github-flow]・[GitLab Flow][gitlab-flow]・[Trunc base flow][trunc-base-flow]などの有名な戦略を学び、自身のプロダクトに合ったものを採用するのがよいだろう。  
+それぞれの戦略の比較としては、GitLab Flowの序文がわかりすい。個人的にではあるが、大まかな指針としては、例えば以下のような方針があると考えている。
+
+- リリースごとにパッチ等の長期メンテナンスが必要になるアプリケーションなら、Git Flowベースの重厚なブランチ戦略をベースにする。
+- 特に古いバージョンのメンテナンスが必要ないWebアプリケーションなら、GitHub Flowベースの軽量なブランチ戦略をベースにする。  
+
+CICDという観点ではGitLab Flowをベースにするのがわかりやすいと思うので、本文書ではGitLab Flowをベースに進める。
+
+### 権限統制
+
+本小節では権限統制方法を説明する。
 
 ![cicd-authorization](/images/cicd-eks-github-argocd/cicd-authorization.drawio.png)
 
@@ -107,6 +123,9 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
 ![argocd-applicationset](/images/cicd-eks-github-argocd/argocd-applicationset.drawio.png)
 
 ### Appendix: ネットワーク経路
+
+本小節はネットワーク設定を説明する。  
+CICD自体とは関係ないため、飛ばして良い。
 
 ![network](/images/cicd-eks-github-argocd/network.drawio.png)
 
@@ -121,3 +140,7 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
 [argocd-helm]: https://github.com/argoproj/argo-helm
 [toyamagu-cicd]: https://github.com/toyamagu-cicd
 [argocd-best-practices]: https://argo-cd.readthedocs.io/en/stable/user-guide/best_practices/
+[git-flow]: https://nvie.com/posts/a-successful-git-branching-model/
+[github-flow]: https://docs.github.com/en/get-started/quickstart/github-flow
+[gitlab-flow]: https://docs.gitlab.com/ee/topics/gitlab_flow.html
+[trunc-base-flow]: https://www.atlassian.com/continuous-delivery/continuous-integration/trunk-based-development
