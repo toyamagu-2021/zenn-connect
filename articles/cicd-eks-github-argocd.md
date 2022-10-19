@@ -10,12 +10,12 @@ published: false
 
 Kubernetes (K8s) や microservice を最大限に活用する上で CICD 基盤は欠かせない。  
 本文書では、K8s基盤として[EKS][eks]を、CIとして[GitHub Actions][github-actions]を、CDとして[ArgoCD][argocd]を採用した場合のアーキテクチャの例を解説する。  
-特に、プロダクションレベルの採用も加味して以下観点を重視して設計する。
+特に、プロダクションレベルへの拡張を想定し、以下観点を重視して設計する。
 
 - 組織の拡大に従ってスケールするアーキテクチャとなっているか。すなわち、人が介入する作業を減らし、自動化できているか
-- CICD基盤の認証認可は、組織のガバナンスを保っているか
+- CICD基盤の認証認可は、組織のガバナンスを反映しているか
 
-本文書で記述する内容は以下の通り
+本文書で記述する内容は以下の通り。
 
 - GitHub Actionsを用いたCIアーキテクチャの例
   - ブランチ戦略
@@ -62,8 +62,9 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
 
 ## アーキテクチャの説明
 
+![cicd-overall-architecture](/images/cicd-eks-github-argocd/cicd-pipelinie.drawio.png)
 
-[^argocd-helm]: ArgoCD Helm chartはcommunity maintainedであるため、公式のinstallマニフェストと比べると若干信頼性に欠ける面もある。また、公式のバージョンサポートはN, N-1型だが、helmチャートの方は最新マイナーバージョンのみサポートされているようだ。このためプロダクションでの採用は慎重に検討すること。例えば、コアな部分のみ公式のチャートをkustomizeし、ApplicationSet・Application・Projectの部分のみ部分的にargocd-appsチャートを利用するのでも十分便利に利用できると思う。個人的な検証用途だが、Kustomizeを用いたmodule例の[リンク](https://github.com/toyamagu-2021/terraform-argocd-kustomize)を張っておく。
+[^argocd-helm]: TerraformでKustomizeかHelmをインストールする場合、Helmのほうが楽である。ArgoCD Helm chartはcommunity maintainedであるため、公式のマニフェストと比べると若干信頼性に欠ける面もある。また、頻繁にリリースが行わているため、追従するのは若干大変である。加えて、公式のバージョンサポートはN, N-1型だが、helmチャートの方は最新マイナーバージョンのみサポートされているようだ。このためプロダクションでの採用は慎重に検討した方が良いと考える。例えば、コアな部分のみ公式のチャートをkustomizeし、ApplicationSet・Application・Projectの部分のみ部分的にargocd-appsチャートを利用するのでも十分便利に利用できると思う。個人的な検証用途だが、Kustomizeを用いたmodule例の[リンク](https://github.com/toyamagu-2021/terraform-argocd-kustomize)を張っておく。
 
 [eks]: https://aws.amazon.com/jp/eks/
 [github-actions]: https://github.com/features/actions
