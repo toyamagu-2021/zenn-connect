@@ -64,6 +64,16 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
 | AWS                | クラウド
 | EKS                | Kubernetesクラスター
 
+### 予備知識
+
+本文書を読む上での予備知識を簡単にまとめる。
+
+- GitHub Apps
+  - 本文書の範囲では、CICDでリポジトリ間の書き込みを行うための、マシンユーザーだと思って良い。
+  - 単純なマシンユーザーと比較して、ユーザーの枠を専有しない・一時トークンの発行が楽など多くのメリットが有る[^zenn-github-app]。
+- Kustomize
+  - K8sマニフェストの環境差分管理に用いる
+
 ## アーキテクチャの説明
 
 本節ではアーキテクチャを様々な観点から説明する。
@@ -164,21 +174,80 @@ GitLab Flowを簡素化したものに、CIプロセスを加えた図を以下�
 1. 環境差分の吸収方針
     - 開発環境・本番環境の環境差分は、ConfigMapやSecretなどのK8s機能を用いて吸収する。
     - 換言すれば、K8sマニフェストリポジトリの `overlays/{prd|dev}/.env` ファイルなどで吸収する。
-      - 若干古いが、12 factor appにもあるベストプラクティスである[^12factor-app-config]。
+      - 12 factor app(若干古いが)にもあるベストプラクティスである[^12factor-app-config]。
     - *アプリケーションリポジトリでブランチ分割しているからとしてそちらで環境差分を吸収しないこと*。
       - 環境毎にアプリケーションコードに差分が存在するのは、悪夢である。
 1. Kustomizeを利用しているが、環境毎にHelm Chartをデプロイしたい
     - KustomizeはHelmをサポートしている。`kustomize build` 時にオプションを有効にする必要があるので、ArgoCDの設定で有効化すること。
 
-### 権限統制
-
-本小節では権限統制方法を説明する。
-
-![cicd-authorization](/images/cicd-eks-github-argocd/cicd-authorization.drawio.png)
-
 ### ArgoCD
 
 ![argocd-applicationset](/images/cicd-eks-github-argocd/argocd-applicationset.drawio.png)
+
+### 権限統制
+
+本小節では権限統制方法を説明する。  
+前述の通り、CICD基盤ではインフラストラクチャレベルでの権限統制が重要である[^governance]。  
+厳しすぎる権限統制は開発効率を落とす一方で、緩すぎる権限統制は不正デプロイなどのインシデントに直結する。
+両極限を加味した上で、開発者・運用者双方が権限統制の意義を理解し、合意した上で適切な権限統制を設定すること。
+
+以下図に本文書での権限統制の概念図を示す。ArgoCDはDexを用いてGitHubとのOAuth連携を行うため[^argocd-user-management]、GitHubでの認証・認可はArgoCDの認証・認可に深い関わりを持つ。
+
+![cicd-authorization](/images/cicd-eks-github-argocd/cicd-authorization.drawio.png)
+
+#### GitHubリポジトリ
+
+GitHubリポジトリに対するロールを以下のように定める。
+GitHubのブランチ保護設定 `Restrict who can push to matching branches` で、Merge可能なアクターを制限できる。
+
+- ロールをMaintainのみに制限
+- (Team以上) Organizationの特定グループ・ユーザーのみに制限
+- (Team以上) 特定のGitHub Appに制限
+
+これを利用して、本番環境ブランチへのMergeを統制する[^github-organization-free]。  
+
+| リポジトリ                 | ブランチ | 役割                                                  | Merge可能なロール |
+| :------------------------- | :------- | :---------------------------------------------------- | :---------------- |
+| アプリケーションリポジトリ | `main`   | 本番環境にリリースされるコードが格納される。          | Maintain          |
+|                            | `dev`    | 開発環境にリリースされるコードが格納される。          | Write             |
+| K8sマニフェストリポジトリ  | `main`   | 本番環境にデプロイされるK8sマニフェストが格納される。 | Maintain          |
+|                            | `dev`    | 開発環境にデプロイされるK8sマニフェストが格納される。 | Write             |
+
+GitHubリポジトリでのアクター・ロールを以下のように定める。GitHub Appだけは特殊だが、本文書の設定だと大体Writeと同じ。
+
+| アクター         | リポジトリ                 | ロール   | 説明                                                                 |
+| :--------------- | :------------------------- | :------- | :------------------------------------------------------------------- |
+| Developer        | アプリケーションリポジトリ | Write    | 開発環境ブランチへの `push` や、本番環境ブランチへの PR を行うため。 |
+| Developer leader | アプリケーションリポジトリ | Maintain | 本番環境ブランチのPRを承認するため。                                 |
+| Operator         | アプリケーションリポジトリ | Maintain | 本番環境ブランチのPRを承認するため。                                 |
+| Developer        | K8sマニフェストリポジトリ  | Write    | 開発環境ブランチへの `push` や、本番環境ブランチへの PR を行うため。 |
+| Developer leader | K8sマニフェストリポジトリ  | Write    | 開発環境ブランチへの `push` や、本番環境ブランチへの PR を行うため。 |
+| Operator         | K8sマニフェストリポジトリ  | Maintain | 本番環境ブランチのPRを承認し、CDツールを利用したデプロイを行うため。 |
+| GitHub App       | K8sマニフェストリポジトリ  | N/A      | 開発環境ブランチへの `push` や、本番環境ブランチへの PR を行うため。 |
+
+#### ArgoCDの認証・認可
+
+以下表のようにRBAC設計を定める。
+
+| アクター          | 対象          | アクション | `project/obeject` | 説明                                                                             |
+| :---------------- | :------------ | :--------- | :---------------- | :------------------------------------------------------------------------------- |
+| 全て              | `*`           | `get`      | `*/*`             | 全てのアクターに対して、全てのリソースに対する読み取り許可を与える[^argocd-read] |
+| Operator          | `*`           | `admin`    | `*/*`             | 運用管理のため、全てのリソースに対する全ての許可を与える                         |
+| Developer(leader) | `application` | `sync`     | `dev/*`           | 開発者に開発環境へのデプロイ権限を与える                                         |
+|                   | `application` | `exec`     | `dev/*`           | 開発者に開発環境Podの `exec` 権限を与える[^argocd-exec]                          |
+
+上記をコード化すると以下のようになる
+
+```csv: policy.csv
+g, ${github_org}:operator, role:operator
+g, ${github_org}:developer, role:developer
+g, ${github_org}:developer-leader, role:developer
+
+g, role:operator, role:admin
+
+p, role:developer, applications, sync, dev/*, allow
+p, role:developer, exec, create, dev/*, allow
+```
 
 ### Appendix: ネットワーク経路
 
@@ -188,12 +257,18 @@ CICD自体とは関係ないため、飛ばして良い。
 ![network](/images/cicd-eks-github-argocd/network.drawio.png)
 
 [^argocd-helm]: TerraformでKustomizeかHelmをインストールする場合、Helmのほうが楽である。ただし、以下理由からプロダクションでの採用は慎重に検討した方が良いと考える。1) ArgoCD Helm chartはcommunity maintainedであるため、公式のマニフェストと比べると若干信頼性に欠ける面がある。2) 頻繁にリリースが行わているため、追従するのは若干大変。3) 公式のバージョンサポートはN, N-1型だが、helmチャートの方は最新マイナーバージョンのみサポートされているようだ。左記の問題点があるため、コアな部分のみ公式のチャートをkustomizeし、ApplicationSet・Application・Projectの部分のみ部分的にargocd-appsチャートを利用するのでも十分便利に利用できると思う。個人的な検証用途だが、Kustomizeを用いたArgoCD インストール Terraform module例の[リンク](https://github.com/toyamagu-2021/terraform-argocd-kustomize)を張っておく。
-[^gitlab-flow]: 必要に応じてリリースブランチや、ステージング環境用のブランチを追加する
+[^github-organization-free]: GitHub Organization Freeではユーザーグループ毎の細かい権限制御ができないため、Enterprise版に比べてだいぶ粗いものになる。  
+[^gitlab-flow]: 必要に応じてリリースブランチや、ステージング環境用のブランチを追加する。
 [^k8s-manifest-push]: PRでもよい。
 [^cicd-checkout-k8s-manifest]: checkoutしてからPRするのは、devブランチの断面保管のため。
 [^kustomize-branch]: もちろん、必要に応じて環境ごとにブランチ分けしてもよい。
 [^kustomize-directory]: [公式](https://github.com/kubernetes-sigs/kustomize/blob/master/examples/helloWorld/README.md#compare-overlays)より引用した。
-[^12facotor-app-config]: https://12factor.net/config
+[^12factor-app-config]: <https://12factor.net/config>
+[^governance]: 個人的な感想だが、CICD基盤の権限統制はガードレールと呼ぶのが好きである。開発を車の走行に例えると、ガードレールの役割は車の速度を抑えるためにあるのではない。車の損傷や人的な被害を抑えるためにある。
+[^zenn-github-app]: <https://zenn.dev/tatsuo48/articles/72c8939bbc6329>
+[^argocd-read]: デフォルトの `read-only` ロールを用いる。ログに対する読み取り権限も与えてしまう。本番環境では許容できないかもしれないので、検討する。
+[^argocd-exec]: `kubectl exec` とほぼ同じ
+[^argocd-user-management]: <https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/>
 
 [eks]: https://aws.amazon.com/jp/eks/
 [github-actions]: https://github.com/features/actions
@@ -208,4 +283,3 @@ CICD自体とは関係ないため、飛ばして良い。
 [github-flow]: https://docs.github.com/en/get-started/quickstart/github-flow
 [gitlab-flow]: https://docs.gitlab.com/ee/topics/gitlab_flow.html
 [trunc-base-flow]: https://www.atlassian.com/continuous-delivery/continuous-integration/trunk-based-development
-
