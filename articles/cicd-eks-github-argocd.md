@@ -13,6 +13,9 @@ Kubernetes (K8s) や microservice を最大限に活用する上で CICD 基盤�
 特に、プロダクションレベルへの拡張を想定し、以下観点を重視して設計する。
 
 - 組織の拡大に従ってスケールするアーキテクチャとなっているか。すなわち、人が介入する作業を減らし、自動化できているか
+- 可能な限りすべてのリソースは宣言的に作成されているか
+  - Single Source of Truth を設定し、設定・構成を一箇所に集約するため
+  - リソースのドリフトを検出するため
 - CICD基盤の認証認可は、組織のガバナンスを反映しているか
 
 本文書で記述する内容は以下の通り。
@@ -100,9 +103,9 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
       - CDツールのアクセス対象を分割するため
     - その他、[ArgoCDのベストプラクティス][argocd-best-practices]に詳述されているため参照
 
-### GitHubブランチ・イベント
+### GitHubブランチ戦略
 
-本小節ではGitHubブランチ戦略、またGitHubイベントを説明する。  
+本小節ではGitHubブランチ戦略、またCIに関連するGitHubイベントを説明する。  
 ブランチ戦略を複雑にすればガバナンスやリリース管理は厳密になるが、一方で運用負荷が上昇する。変更の取り込み漏れなどの、ミスが発生するもとにもなる。  
 このあたりの事情は[Git Flow][git-flow]・[GitHub Flow][github-flow]・[GitLab Flow][gitlab-flow]・[Trunc base flow][trunc-base-flow]などの有名な戦略を学び、自身のプロダクトに合ったものを採用するのがよいだろう。  
 それぞれの戦略の比較としては、GitLab Flowの序文がわかりすい。個人的にではあるが、大まかな指針としては、例えば以下のような方針があると考えている。
@@ -111,6 +114,61 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
 - 特に古いバージョンのメンテナンスが必要ないWebアプリケーションなら、GitHub Flowベースの軽量なブランチ戦略をベースにする。  
 
 CICDという観点ではGitLab Flowをベースにするのがわかりやすいと思うので、本文書ではGitLab Flowをベースに進める。
+GitLab Flowを簡素化したものに、CIプロセスを加えた図を以下に示す[^gitlab-flow]。
+
+![git-branch](/images/cicd-eks-github-argocd/git-branch.drawio.png)
+
+ポイントは以下の通り。
+
+1. アプリケーション用のリポジトリ (`argocd-cicd-application`)
+    - 各デプロイ先環境にリリースされるアプリケーションコードを格納するブランチを用意する。
+      - 図では `main` (本番環境), `dev` (開発環境)とした。
+      - デプロイ先環境に対応するブランチは `main` ブランチへのマージなどによっても消去せず、永続化する。
+        - 誤って消去しないよう、ブランチ保護などを用いて適切に保護する。
+    - 機能実装用の一時的なブランチを `feature/functionX` と仮定する。機能実装・テスト後 `argocd-cicd-application`/`dev` ブランチにマージする。
+      - Merge後 `feature/functionX` ブランチは削除する。
+      - `argocd-cicd-application`/`dev` ブランチへのマージによってCIが動作する。
+        - `argocd-cicd-k8s-manifest`/`dev` ブランチへのpushを行う(図の緑線)[^k8s-manifest-push]。
+      - `argocd-cicd-k8s-manifest`/`dev` ブランチはCDツールによって監視されているため、 開発環境に新規アプリケーションのデプロイが行われる。
+    - 開発環境でのテスト後本番環境にリリースするため、 `argocd-cicd-application`/`dev` ブランチから `argocd-cicd-application`/`main` ブランチへのPullRequestを行う。
+      - レビュー後、PullRequestをMergeする。
+      - `argocd-cicd-application`/`main` ブランチへのマージによってCIが動作する。
+        - `argocd-cicd-k8s-manifest`/`dev` ブランチをcheckoutする。`argocd-cicd-k8s-manifest`/`main` ブランチへのPRを行う (図の赤線) [^cicd-checkout-k8s-manifest]。
+        - レビュー後PRをMergeする。
+        - Merge後一時的なブランチは削除する。
+      - `argocd-cicd-k8s-manifest`/`main` ブランチはCDツールによって監視されているため、 本番環境に新規アプリケーションのデプロイが行われる。
+2. K8sマニフェストリポジトリ
+    - 各デプロイ先環境にデプロイするK8sマニフェストを格納するブランチを用意する。これらは永続化する。
+      - 図では `main` (本番環境), `dev` (本番環境以外)とした。
+    - K8sマニフェストの環境分けは Kustomize を用いて行うため、 `dev` ブランチには本番環境以外のすべてのマニフェストを格納する[^kustomize-branch]。
+    - 各ブランチはCDツールによって監視されているため、各ブランチへのPush(Merge)は実環境へのデプロイにつながる。
+    - Kustomizeのディレクトリ構造は、例えば以下のようにする[^kustomize-directory]。
+
+      ```console
+      ├── base
+      │   ├── configMap.yaml
+      │   ├── deployment.yaml
+      │   ├── kustomization.yaml
+      │   └── service.yaml
+      └── overlays
+          ├── prd
+          │   ├── .env
+          │   └── kustomization.yaml
+          └── dev
+              ├── kustomization.yaml
+              └── .env
+      ```
+
+以下に注意点を記述する。
+
+1. 環境差分の吸収方針
+    - 開発環境・本番環境の環境差分は、ConfigMapやSecretなどのK8s機能を用いて吸収する。
+    - 換言すれば、K8sマニフェストリポジトリの `overlays/{prd|dev}/.env` ファイルなどで吸収する。
+      - 若干古いが、12 factor appにもあるベストプラクティスである[^12factor-app-config]。
+    - *アプリケーションリポジトリでブランチ分割しているからとしてそちらで環境差分を吸収しないこと*。
+      - 環境毎にアプリケーションコードに差分が存在するのは、悪夢である。
+1. Kustomizeを利用しているが、環境毎にHelm Chartをデプロイしたい
+    - KustomizeはHelmをサポートしている。`kustomize build` 時にオプションを有効にする必要があるので、ArgoCDの設定で有効化すること。
 
 ### 権限統制
 
@@ -130,6 +188,12 @@ CICD自体とは関係ないため、飛ばして良い。
 ![network](/images/cicd-eks-github-argocd/network.drawio.png)
 
 [^argocd-helm]: TerraformでKustomizeかHelmをインストールする場合、Helmのほうが楽である。ただし、以下理由からプロダクションでの採用は慎重に検討した方が良いと考える。1) ArgoCD Helm chartはcommunity maintainedであるため、公式のマニフェストと比べると若干信頼性に欠ける面がある。2) 頻繁にリリースが行わているため、追従するのは若干大変。3) 公式のバージョンサポートはN, N-1型だが、helmチャートの方は最新マイナーバージョンのみサポートされているようだ。左記の問題点があるため、コアな部分のみ公式のチャートをkustomizeし、ApplicationSet・Application・Projectの部分のみ部分的にargocd-appsチャートを利用するのでも十分便利に利用できると思う。個人的な検証用途だが、Kustomizeを用いたArgoCD インストール Terraform module例の[リンク](https://github.com/toyamagu-2021/terraform-argocd-kustomize)を張っておく。
+[^gitlab-flow]: 必要に応じてリリースブランチや、ステージング環境用のブランチを追加する
+[^k8s-manifest-push]: PRでもよい。
+[^cicd-checkout-k8s-manifest]: checkoutしてからPRするのは、devブランチの断面保管のため。
+[^kustomize-branch]: もちろん、必要に応じて環境ごとにブランチ分けしてもよい。
+[^kustomize-directory]: [公式](https://github.com/kubernetes-sigs/kustomize/blob/master/examples/helloWorld/README.md#compare-overlays)より引用した。
+[^12facotor-app-config]: https://12factor.net/config
 
 [eks]: https://aws.amazon.com/jp/eks/
 [github-actions]: https://github.com/features/actions
@@ -144,3 +208,4 @@ CICD自体とは関係ないため、飛ばして良い。
 [github-flow]: https://docs.github.com/en/get-started/quickstart/github-flow
 [gitlab-flow]: https://docs.gitlab.com/ee/topics/gitlab_flow.html
 [trunc-base-flow]: https://www.atlassian.com/continuous-delivery/continuous-integration/trunk-based-development
+
