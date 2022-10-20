@@ -9,7 +9,7 @@ published: false
 ## 概要
 
 Kubernetes (K8s) や microservice を最大限に活用する上で CICD 基盤は欠かせない。  
-本文書では、K8s基盤として[EKS][eks]を、CIとして[GitHub Actions][github-actions]を、CDとして[ArgoCD][argocd]を採用した場合のアーキテクチャの例を解説する。  
+本文書では、K8s基盤として[EKS][eks]を、CIとして[GitHub Actions][github-actions]を、CDとして[ArgoCD][argo-cd]を採用した場合のアーキテクチャの例を解説する。  
 特に、プロダクションレベルへの拡張を想定し、以下観点を重視して設計する。
 
 - 組織の拡大に従ってスケールするアーキテクチャとなっているか。すなわち、人が介入する作業を減らし、自動化できているか
@@ -76,16 +76,12 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
     | :----------- | :------------- | :------------------------------------------ |
     | Contents     | Read and Write | K8sマニフェストアップデートのため           |
     | Pull Request | Read and Write | K8sマニフェストリポジトリでPRを発行するため |
-- Kustomize
+- [Kustomize][kustomize]
   - K8sマニフェストの環境差分管理に用いる
 - ArgoCD
-  - K8s用のCDツール
-  - JenkinsやSppinakerと比較して、K8sに特化している分簡単に利用できる
-  - 一方で、FluxCDよりは機能が豊富（ユーザー管理など）
-  - 主要リソースの一覧と簡単な説明は以下表の通り
-    | リソース     | アクション     | 説明                                        |
-    | :----------- | :------------- | :------------------------------------------ |
-    |  |  |  |
+  - 本文中で概要レベルで記述する
+- NginxIngress
+  - インターネットアクセスに用いる
 
 ## アーキテクチャの説明
 
@@ -196,11 +192,34 @@ GitLab Flowを簡素化したものに、CIプロセスを加えた図を以下�
 
 ### ArgoCD
 
+本小節ではArgoCDによるCD方法を記述する。
+
+#### ArgoCD概要
+
+ArgoCDはGitOpsに基づきK8sクラスタにデプロイを行う[CNCF Incubating Project][cncf-argocd]である。  
+GitHub[GitHub][github-argocd]にコードが公開されている。  
+他のメジャーなCDツールの比較の概要を以下に示す。
+
+- K8s以外のデプロイにも利用できる[Jenkins][jenkins] や [Sppinaker][spinnaker] と比較して、K8sに特化している分簡単に利用できる。
+  - 主観だが、GitOpsの思想にもArgoCDのほうがより忠実であると感じる。
+- K8sに特化したツールであるFluxCDよりは機能が豊富
+  - ユーザー管理など
+- [ArgoWorkflows][argo-workflows] [ArgoRollout][argo-rollout] など、周辺プロダクトも優秀。
+
+ArgoCDの基本的なリソースと概要を以下表に示す。詳細は[公式ページ][argocd]参照のこと。
+
+| リソース       | 概要                                                                                              |
+| :------------- | :------------------------------------------------------------------------------------------------ |
+| Application    | GitOps対象のリポジトリを指定するArgoCD CRD                                                        |
+| Project        | マルチテナント時の権限分割に用いる[^argocd-project]。Applicationのまとまりの権限境界となる。      |
+| ApplicationSet | ApplicationをTemplate化し、一括で生成する。GitHubリポジトリパスのパターンマッチなどが利用できる。 |
+
 ![argocd-applicationset](/images/cicd-eks-github-argocd/argocd-applicationset.drawio.png)
 
 ### 権限統制
 
 本小節では権限統制方法を説明する。  
+
 前述の通り、CICD基盤ではインフラストラクチャレベルでの権限統制が重要である[^governance]。  
 厳しすぎる権限統制は開発効率を落とす一方で、緩すぎる権限統制は不正デプロイなどのインシデントに直結する。
 両極限を加味した上で、開発者・運用者双方が権限統制の意義を理解し、合意した上で適切な権限統制を設定すること。
@@ -283,6 +302,7 @@ CICD自体とは関係ないため、飛ばして良い。
 [^argocd-read]: デフォルトの `read-only` ロールを用いる。ログに対する読み取り権限も与えてしまう。本番環境では許容できないかもしれないので、検討する。
 [^argocd-exec]: `kubectl exec` とほぼ同じ
 [^argocd-user-management]: <https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/>
+[^argocd-project]: 権限統制の他にも、定期的なデプロイやOrphaned resourceの検出等、様々な機能がある。本文書では権限統制以外の目的には用いない。
 
 [eks]: https://aws.amazon.com/jp/eks/
 [github-actions]: https://github.com/features/actions
@@ -297,3 +317,11 @@ CICD自体とは関係ないため、飛ばして良い。
 [github-flow]: https://docs.github.com/en/get-started/quickstart/github-flow
 [gitlab-flow]: https://docs.gitlab.com/ee/topics/gitlab_flow.html
 [trunc-base-flow]: https://www.atlassian.com/continuous-delivery/continuous-integration/trunk-based-development
+[argo-cd]: https://argo-cd.readthedocs.io/en/stable/
+[cncf-argocd]: https://www.cncf.io/projects/argo/
+[github-argocd]: https://github.com/argoproj/argo-cd
+[jenkins]: https://www.jenkins.io/
+[spinnaker]: https://spinnaker.io/
+[argo-rollout]: https://argoproj.github.io/argo-rollouts/
+[argo-workflows]: https://argoproj.github.io/argo-workflows/
+[kustomize]: https://kustomize.io/
