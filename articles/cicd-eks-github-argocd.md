@@ -236,7 +236,7 @@ ArgoCDの基本的なリソースと概要を以下表に示す。詳細は[公�
 ArgocdApplicationSet CRDは、Applicationのtemplateを一括でプロイする仕組みである[^argocd-applicationset-go-template]。  
 従来、Applicationの一括管理はApp of Appsパターンなどが用いられてきたが、今回はApplicationSetを利用する[^argocd-app-of-apps]。  
 ArgoCD v2.3からArgoCD AppliactionSetは標準インストールに同梱されており、気軽に利用することができる。  
-ArgoCD ApplicationSet機能には以下のメリットがある。ArgoCD公式ドキュメントの[monorepos]ユースケース例も参照すると良い。
+ArgoCD ApplicationSet機能には以下のメリットがある。ArgoCD公式ドキュメントの [monorepos][monorepos]ユースケース例も参照すると良い。
 
 - 複数のApplicationを一括でプロイできる
   - マルチクラスタ・マルチNSを指定可能
@@ -260,6 +260,7 @@ ApplicationSet `boostrap` のみ説明すれば残りの意味も掴めると思
   - クラスターのboostrapに必要なリソースを一括でプロイする
   - 今回の例ではインターネットアクセス用の[NginxIngress][ingress-nginx]を対象としている。
 - Gitリポジトリ監視対象
+  - リポジトリ: [toyamagu-cicd/argocd-cicd-k8s-manifest][toyamagu-cicd-argocd-cicd-k8s-manifest]
   - `main` ブランチ
     - Bootrapに用いる重要なアプリケーションのため、運用管理者が作成する前提とする。後の権限統制も参照。
   - `application/bootstrap/*` パス
@@ -278,6 +279,34 @@ ApplicationSet `boostrap` のみ説明すれば残りの意味も掴めると思
 今回の場合は、ApplicationSetをTerraform中でデプロイすることにより、EKSのデプロイと同時にArgoCDのデプロイと、インターネットアクセスが可能になっている。  
 詳細はTerraformセクション参照。
 
+#### Secret管理
+
+CICDを行う場合、Secret管理は切り離せない関係にあるため、この節で簡単に言及しておく。  
+実際、ArgoCDをデプロイするためにもプライベートGitリポジトリの資格情報や、OAuth用クライアントシークレットなどが必要である。
+
+GitOpsは全ての情報がGitリポジトリに格納されていることを理想とするが、勿論資格情報などをGitリポジトリに格納してはいけない。  
+[sealed-secrets][sealed-secrets]などを用いて暗号化した上でGitリポジトリに格納することも可能だが、オペレーション事故などが怖い。  
+そのため、各クラウドのシークレットストレージや、[HashiCorp Vault][vault]の外部ストレージを用いるのがとっつきやすいと思われる。  
+本文書では AWS SyatemsManager ParameterStoreに資格情報を格納することにする。  
+AWS SecretsManagerを利用しないのは、料金がかかるのと、消去するのが若干面倒だからである。  
+本番運用ではAWS SecretsManagerの方が機能面で優れているので、そちらを優先するとよいだろう。  
+
+外部ストレージに保管した資格情報は、どのようにK8s上にデプロイすれば良いのだろうか。これもいくつか選択肢がある。
+
+- [External Secrets Operator][external-secrets]
+  - 外部ストレージからK8s Secretsを作成できる
+- [Secrets Store CSI Driver][secrets-store-csi-driver]
+  - 外部ストレージからK8s Secretを作成できる。こちらはPodにマウントする必要がある。
+  - したがって、Secretが作成されるためにはPodを作成する必要がある。
+- [Terraform kubernetes provider][terraform-kubernetes-provider]
+  - Terraformのdataで外部ストレージからデータを拾ってきてK8s providerを用いてSecretをデプロイする。
+  - K8sクラスタに追加のリソースをデプロイしなくて良いが、`.tfstate` にデータが残ってしまうのが難点。
+
+個人的には、Podに資格情報をマウントする前提なら、SecretsStoreを用いると楽であると考える。[AWSの公式ドキュメント][secrets-store-csi-driver-aws]も充実している。  
+本文書では追加のリソースが必要ないという簡便さを重視してTerraformでSecretsをデプロイする。*推奨はしない*。  
+SecretsStoreに拡張するのは容易である。
+さらなる詳細はTerraformセクションに譲る。
+
 ### 権限統制
 
 本小節では権限統制方法を説明する。  
@@ -293,6 +322,7 @@ ApplicationSet `boostrap` のみ説明すれば残りの意味も掴めると思
 
 以下GitHubリポジトリ・ArgoCDそれぞれに対して詳しい説明をするが、設定方針の概略は以下の通りである。
 
+- 本番環境・開発環境ともに開発者・運用者に全てのリソースに対する読み取り権限を付与すること。
 - 本番環境 `prd` NSは運用者のみがデプロイ権限を持つこと
 - 開発環境 `dev` NSは開発者・運用者がデプロイ権限を持つこと
 
@@ -350,7 +380,7 @@ p, role:developer, applications, sync, dev/*, allow
 p, role:developer, exec, create, dev/*, allow
 ```
 
-### ネットワーク経路 (Appendix)
+### ネットワーク経路 (おまけ)
 
 本小節はネットワーク設定を説明する。CICD自体とは関係ないため、飛ばして良い。  
 NginxIngress VitrualServer CRD自体は[非常に良い解説][thinkit-nginx-ingress]がある。
@@ -360,6 +390,75 @@ NginxIngress VitrualServer CRD自体は[非常に良い解説][thinkit-nginx-ing
 
 ![network](/images/cicd-eks-github-argocd/network.drawio.png)
 
+### Terraform
+
+本小節はTerraform利用方針を説明する。
+
+#### Terraform概要
+
+本格的にクラウドを利用し、大量のリソースをデプロイする場合、Infrastructure as Code (IaC) は事実上必須であると言ってよいだろう。  
+IaCを活用することのメリットには枚挙に暇がないが、例えば以下がある。
+
+- （クラウド）リソースをコード化し、宣言的に作成できる
+- 環境をすぐに立ち上げ、不要になったら廃棄できる
+- リソースのドリフトを検出し、GitOpsに基づいたあるべき姿からはずれた場合に検出できる
+- CICDと組み合わせることで、ブランチ作成やPRに紐づけたリソース作成などの応用ができる
+
+AWSでIaCを行う場合AWS CDK・CloudFormation・Terraform・Pulumi等の選択肢がある。  
+本文書では汎用性が高く、安定的で、幅広いprovider（プロビジョニングできるリソース）をサポートしているTerraformを用いる。
+Terraform自体のCICDは検証目的のため行わないが、本番環境で運用する場合、TerraformのCICDもできていると望ましいだろう[^atlantis]。  
+特に、CICDを定期的にスケジューリングしておけば、(さすがに実際にApplyはしないが)ドリフトの検出ができてよい。
+
+#### Terraform利用方針
+
+本文書ではTerraformで管理できる部分は全て管理するというアプローチを取る。  
+したがって、 `terraform apply` コマンドでArgoCDのリソースも含めて全てのリソースのセットアップが完了することを目指す。
+Terraformで管理するリソースは例えば以下である。
+
+- EKS及びVPC
+- 資格情報
+  - OAuth clientID, clientSecret
+  - GitHub App秘密鍵
+- K8sリソース
+  - NS
+  - ArgoCD
+    - ApplicationSet
+    - Project
+    - Dex用Secret
+- GitHub
+  - Organization/Team
+  - リポジトリ
+    - ロール付与
+  - ブランチ (protection)
+
+何を管理しない（できない）かを以下に列挙する。管理しない理由としては、単純に[GitHub provider][terraform-provider-github]が対応していないためである。
+
+- GitHub
+  - User
+  - Organization
+  - OAuth Apps
+  - GitHub Apps
+
+#### Secrets管理
+
+Terraformを用いたSecrets管理は[こちらのブログ][handling-secrets-with-terraform]の3.を参考にした。  
+すなわち、ParameterStoreに保管する場所だけ作っておいて、Terraformの `local_exec` 機能で書き換えるというやり方である。
+若干工夫した点として、資格情報が与えられていればParameterStoreの書き換えを行い、与えられていなければ値をdataを用いて持ってくるという形にした。
+
+#### Terraformコード
+
+全て `toyamagu-cicd/terraform-argocd-cicd` 以下に格納している。
+
+- GitHub関連
+  - `resources/github`
+- ArgoCD関連
+  - `resources/argocd`
+
+長くなったが、上記のTerraformコードにより本文書で記述されたほとんどのリソースがデプロイされる。
+手順の概略は `README.md` にある。
+
+## References
+
 [^argocd-helm]: TerraformでKustomizeかHelmをインストールする場合、Helmのほうが楽である。ただし、以下理由からプロダクションでの採用は慎重に検討した方が良いと考える。1) ArgoCD Helm chartはcommunity maintainedであるため、公式のマニフェストと比べると若干信頼性に欠ける面がある。2) 頻繁にリリースが行わているため、追従するのは若干大変。3) 公式のバージョンサポートはN, N-1型だが、helmチャートの方は最新マイナーバージョンのみサポートされているようだ。左記の問題点があるため、コアな部分のみ公式のチャートをkustomizeし、ApplicationSet・Application・Projectの部分のみ部分的にargocd-appsチャートを利用するのでも十分便利に利用できると思う。個人的な検証用途だが、Kustomizeを用いたArgoCD インストール Terraform module例の[リンク](https://github.com/toyamagu-2021/terraform-argocd-kustomize)を張っておく。
 [^gitlab-flow]: 必要に応じてリリースブランチや、ステージング環境用のブランチを追加する。
 [^github-organization-free]: GitHubOrganizationFreeではユーザーグループ毎の細かい権限制御ができないため、Enterprise版に比べてだいぶ粗いものになる。
@@ -368,7 +467,7 @@ NginxIngress VitrualServer CRD自体は[非常に良い解説][thinkit-nginx-ing
 [^kustomize-branch]: もちろん、必要に応じて環境ごとにブランチ分けしてもよい。
 [^kustomize-directory]: [公式](https://github.com/kubernetes-sigs/kustomize/blob/master/examples/helloWorld/README.md#compare-overlays)より引用した。
 [^governance]: 個人的な感想だが、CICD基盤の権限統制はガードレールと呼ぶのが好きである。開発を車の走行に例えると、ガードレールの役割はむやみに車の速度を抑えるためにあるのではない。万が一のことが起こりそうになっても、車の損傷や人的な被害を抑えるためにある（と解釈している）。
-[^argocd-read]: デフォルトの `read-only` ロールを用いる。ログに対する読み取り権限も与えてしまう。本番環境では許容できないかもしれないので、検討する。
+[^argocd-read]: デフォルトの `read-only` ロールを用いる。Podのログに対する読み取り権限も与えてしまう。本番環境では許容できないかもしれないので、検討すること。ArgoCD v2.4以降ではRBACを用いてログの閲覧のみを制限することができる。
 [^argocd-exec]: `kubectl exec` とほぼ同じ
 [^argocd-project]: 権限統制の他にも、定期的なデプロイやOrphaned resourceの検出等、様々な機能がある。本文書では権限統制以外の目的には用いない。
 [^argocd-applicationset-go-template]: [goTemplate機能](https://argo-cd.readthedocs.io/en/latest/operator-manual/applicationset/GoTemplate/)が v2.5から実装される。現在v2.5はstableでないので注意。
@@ -378,8 +477,10 @@ NginxIngress VitrualServer CRD自体は[非常に良い解説][thinkit-nginx-ing
       - [Beta機能である][argocd-application-in-any-namespace]
       - 現時点ではクラスタ内の任意のNSでのApplication作成を想定しており、クラスタ間がサポートされるかは未定である
 [^argocd-applicationset-git-generator]: 今回はGit Generatorの中でも基本的な[Directories][argocd-applicationset-directories]を用いる。Gitリポジトリに設置した config ファイルを参照してデプロイ先クラスターを指定するなどもできる。[Files][argocd-applicationset-files]を参照。
-[^argocd-applicatonset-bootstrap]: Prometheusや、ServiceMesh製品などインフラに近いリソースはbootstrapに含めてしまいたいという気持ちになる。
+[^argocd-applicationset-bootstrap]: Prometheusや、ServiceMesh製品などインフラに近いリソースはbootstrapに含めてしまいたいというお気持ちになる。
+[^atlantis]: TerraformCloudをよく使っているが、[atlantis][atlantis]も面白そうで使ってみたいというお気持ちはある。PRをMergeした後にエラーが出るのはしんどい。
 
+[atlantis]: https://www.runatlantis.io/
 [argocd-issue-2785]: https://github.com/argoproj/argo-cd/issues/2785
 [eks]: https://aws.amazon.com/jp/eks/
 [github-actions]: https://github.com/features/actions
@@ -415,3 +516,12 @@ NginxIngress VitrualServer CRD自体は[非常に良い解説][thinkit-nginx-ing
 [github-toyamagu-cicd-documents-design-internet-access]: https://github.com/toyamagu-cicd/document/blob/argocd-cicd/argocd-cicd/design.md#internet-access
 [terraform]: https://www.terraform.io/
 [zenn-github-app]: https://zenn.dev/tatsuo48/articles/72c8939bbc6329
+[toyamagu-cicd-argocd-cicd-k8s-manifest]: https://github.com/toyamagu-cicd/argocd-cicd-k8s-manifest
+[terraform-provider-github]: https://registry.terraform.io/providers/integrations/github/latest/docs
+[sealed-secrets]: https://github.com/bitnami-labs/sealed-secrets
+[vault]: https://www.vaultproject.io/
+[external-secrets]: https://external-secrets.io/v0.6.0/
+[secrets-store-csi-driver]: https://secrets-store-csi-driver.sigs.k8s.io/
+[terraform-kubernetes-provider]: https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs
+[secrets-store-csi-driver-aws]: https://docs.aws.amazon.com/secretsmanager/latest/userguide/integrating_csi_driver.html
+[handling-secrets-with-terraform]: https://engineering.mobalab.net/2021/03/25/handling-secrets-with-terraform/
