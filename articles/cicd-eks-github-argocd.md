@@ -193,6 +193,94 @@ GitLab Flowを簡素化したものに、CIプロセスを加えた図を以下�
 1. Kustomizeを利用しているが、環境毎にHelm Chartをデプロイしたい
     - KustomizeはHelmをサポートしている。`kustomize build` 時にオプションを有効にする必要があるので、ArgoCDの設定で有効化すること。
 
+#### コード例
+
+[toyamagu-cicd/argocd-cicd-application][toyamagu-cicd-argocd-cicd-application] に設置した。
+コアな部分は以下である。  
+
+- AWS 資格情報取得
+  - AWS IAM OIDCプロバイダー機能を用いて、[GitHub OpenID Connect][configuring-openid-connect-in-amazon-web-services] と連携しているため、資格情報の発行不要
+  - [参考記事][zenn-github-actions-support-openid-connect]
+
+
+  ```yaml
+  - name: Configure AWS credentials
+    uses: aws-actions/configure-aws-credentials@v1-node16
+    with:
+      role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
+      aws-region: ${{ env.AWS_REGION }}
+  ```
+
+- GitHub App トークン取得
+  - K8sマニフェストリポジトリへの書き込みのために、トークンを取得する。
+
+  ```yaml
+  - name: Generate token
+    id: generate-token
+    uses: tibdex/github-app-token@v1
+    with:
+      app_id: ${{ secrets.APP_ID }}
+      private_key: ${{ secrets[format('PEM_{0}', secrets.APP_ID)] }}
+  ```
+
+- Login と Build Image
+  - タグにコミットハッシュを指定
+  - プレフィックスにブランチ名を指定
+    - 勿論、実際の運用ではリポジトリを分けるべきだし、そもそも、本番と開発のECRリポジトリでAWSアカウント自体を分けるべきだろう。
+
+  ```yaml
+  - name: Login to Amazon ECR
+    id: login-ecr
+    uses: aws-actions/amazon-ecr-login@v1
+
+  - name: Build, tag, and push image to Amazon ECR
+    id: build-image
+    env:
+      ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      working-dir: "."
+    run: |
+      TAG_PREFIX=$(echo ${{github.ref_name}} | sed 's/[\/#]/-/g')
+      CONTAINER_REPO="${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}"
+      CONTAINER_TAG="${TAG_PREFIX}-${{ github.sha }}"
+      CONTAINER_NAME=${CONTAINER_REPO}:${CONTAINER_TAG}
+      docker build -t ${CONTAINER_NAME} .
+      docker push ${CONTAINER_NAME}
+      echo "::set-output name=container-repo::${CONTAINER_REPO}"
+      echo "::set-output name=container-tag::${CONTAINER_TAG}"
+  ```
+
+- Update K8sマニフェスト
+  - `env.APPLICATION_DIR_PREFIX` でパスのプレフィックスを指定
+  - `target-dir` でアプリケーションリポジトリのブランチに応じて書き換え先を指定
+    - `main` ブランチ -> `overlays/prd`
+    - `dev` ブランチ -> `overlays/dev`
+
+  ```yaml
+  - name: Update K8s manifest
+    env:
+      CONTAINER_TAG: ${{needs.build-and-publish.outputs.container-tag}}
+    run: |
+      kustomize edit set image sample-app="*:${CONTAINER_TAG}"
+    working-directory: "${{ env.APPLICATION_DIR_PREFIX }}/overlays/${{ steps.set-target-branch.outputs.target-dir }}"
+  ```
+
+- ブランチに応じてK8sマニフェストリポジトリにpushかPR
+  - `dev` -> K8sマニフェストリポジトリ/`dev` ブランチにpush
+  - `main` -> K8sマニフェストリポジトリ/`dev` ブランチをチェックアウト、 K8sマニフェストリポジトリ/`main` ブランチにPR
+
+  ```yaml
+  - name: Push
+    if: ${{ steps.set-target-branch.outputs.target-branch == 'dev' }}
+    run: |
+      git push origin ${{ steps.set-target-branch.outputs.target-branch }}
+  
+  - name: Create Pull Request
+    if: ${{ steps.set-target-branch.outputs.target-branch == 'main' }}
+    id: cpr
+    uses: peter-evans/create-pull-request@v4
+    ...
+  ```
+
 ### ArgoCD
 
 本小節ではArgoCDによるCD方法を記述する。
@@ -525,3 +613,6 @@ Terraformを用いたSecrets管理は[こちらのブログ][handling-secrets-wi
 [terraform-kubernetes-provider]: https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs
 [secrets-store-csi-driver-aws]: https://docs.aws.amazon.com/secretsmanager/latest/userguide/integrating_csi_driver.html
 [handling-secrets-with-terraform]: https://engineering.mobalab.net/2021/03/25/handling-secrets-with-terraform/
+[toyamagu-cicd-argocd-cicd-application]: https://github.com/toyamagu-cicd/argocd-cicd-application/blob/main/.github/workflows/push.yaml
+[configuring-openid-connect-in-amazon-web-services]: https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services
+[zenn-github-actions-support-openid-connect]: https://zenn.dev/miyajan/articles/github-actions-support-openid-connect
