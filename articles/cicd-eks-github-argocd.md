@@ -107,6 +107,7 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
     - アプリケーションのビルドを行う
     - コンテナリポジトリ (ECR) にビルドされたコンテナをpublishする
     - publishされたコンテナをデプロイするために、 `argocd-cicd-k8s-manifest` リポジトリのK8sマニフェストを書き換え、CDツールにデプロイを委任する
+      - 書き換え対象は主にコンテナタグである。CDツールに変更を伝えるために、コミットハッシュを用いて上書きするのが一般的。
 1. ArgoCDは以下のようなCDを行う。
     - `argocd-cicd-k8s-manifest` リポジトリを監視し、K8sマニフェストの変更に応じてEKSにデプロイを行う
 
@@ -366,7 +367,7 @@ NginxIngress VitrualServer CRD自体は[非常に良い解説][thinkit-nginx-ing
 [^cicd-checkout-k8s-manifest]: checkoutしてからPRするのは、devブランチの断面保管のため。
 [^kustomize-branch]: もちろん、必要に応じて環境ごとにブランチ分けしてもよい。
 [^kustomize-directory]: [公式](https://github.com/kubernetes-sigs/kustomize/blob/master/examples/helloWorld/README.md#compare-overlays)より引用した。
-[^governance]: 個人的な感想だが、CICD基盤の権限統制はガードレールと呼ぶのが好きである。開発を車の走行に例えると、ガードレールの役割は車の速度を抑えるためにあるのではない。車の損傷や人的な被害を抑えるためにある。
+[^governance]: 個人的な感想だが、CICD基盤の権限統制はガードレールと呼ぶのが好きである。開発を車の走行に例えると、ガードレールの役割はむやみに車の速度を抑えるためにあるのではない。万が一のことが起こりそうになっても、車の損傷や人的な被害を抑えるためにある（と解釈している）。
 [^argocd-read]: デフォルトの `read-only` ロールを用いる。ログに対する読み取り権限も与えてしまう。本番環境では許容できないかもしれないので、検討する。
 [^argocd-exec]: `kubectl exec` とほぼ同じ
 [^argocd-project]: 権限統制の他にも、定期的なデプロイやOrphaned resourceの検出等、様々な機能がある。本文書では権限統制以外の目的には用いない。
