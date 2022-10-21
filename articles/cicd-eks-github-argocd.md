@@ -1,5 +1,5 @@
 ---
-title: "GitHubとArgoCDを用いたKubernetes(EKS)へのCICD"
+title: "Terraformで作る、GitHubとArgoCDを用いたKubernetes(EKS)へのCICD -設計編-"
 emoji: "🌸"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["kubernetes", "github", "cicd", "argocd", "eks"]
@@ -9,14 +9,14 @@ published: false
 ## 概要
 
 Kubernetes (K8s) や microservice を最大限に活用する上で CICD 基盤は欠かせない。  
-本文書では、K8s基盤として[EKS][eks]を、CIとして[GitHub Actions][github-actions]を、CDとして[ArgoCD][argo-cd]を採用した場合のアーキテクチャの例を解説する。  
+本文書では、K8s基盤として[EKS][eks]を、CIとして[GitHub Actions][github-actions]を、CDとして[ArgoCD][argo-cd]を、IaCとして[Terraform][terraform]採用した場合のアーキテクチャの例を解説する。  
 特に、プロダクションレベルへの拡張を想定し、以下観点を重視して設計する。
 
 - 組織の拡大に従ってスケールするアーキテクチャとなっているか。すなわち、人が介入する作業を減らし、自動化できているか
 - 可能な限りすべてのリソースは宣言的に作成されているか
   - Single Source of Truth を設定し、設定・構成を一箇所に集約するため
   - リソースのドリフトを検出するため
-- CICD基盤の認証認可は、組織のガバナンスを反映しているか
+- CICD基盤の認証認可は、組織の権限統制を反映しているか
 
 本文書で記述する内容は以下の通り。
 
@@ -32,9 +32,11 @@ Kubernetes (K8s) や microservice を最大限に活用する上で CICD 基盤�
   - [GitHub provider][terraform-github-provider]を用いたGitHubリソースのプロビジョニング
   - [AWS EKS module][terraform-eks-module]を用いたEKSクラスタのプロビジョニング
   - [Helm provider][terraform-helm-provider]を用いたArgoCDのインストール
-    - 検証用途のため、ArgoCDのインストールにはパラメータ設定の簡便さを重視して[ArgoCD Helm chart][argocd-helm]を採用する[^argocd-helm]
+    - ArgoCDのインストールにはパラメータ設定の簡便さ、Terraform providerの利用しやすさを重視して[ArgoCD Helm chart][argocd-helm]を採用する[^argocd-helm]
 
-上記を実現するコード群はOrganizationも含めてGitHubに公開している[toyamagu-cicd]。質問・指摘を歓迎します。
+本文書では主に設計思想や設計内容を解説する。構築手順の詳細な解説も時間があれば書きたい。  
+コード群や簡略手な構築手順は、GitHub Organizationも含めてGitHubに公開している[toyamagu-cicd]。  
+質問・指摘を歓迎します。
 
 ## イントロダクション
 
@@ -44,12 +46,12 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
 
 - ビルド・テスト・パブリッシュ・デプロイを自動化しリリーススピードをはやめる
 - テストを自動的に都度行うことで、品質の改善を行う
-- 徹底的な自動化を行うことによって、ビジネスの拡大に従って、サービスをスケールする
-  - 特に大量のコンテナをデプロイするK8s等のコンテナオーケストレータを採用する場合、自動デプロイの仕組みがないと運用負荷がかかる
+- 自動化を行うことによって、ビジネスの拡大に従って、サービスをスケールする
+  - 特に大量のコンテナをデプロイするK8s等のコンテナオーケストレータを採用する場合、自動デプロイの仕組みがないと人的コストがかかる
 
 ただし、CICDは以下に注意が必要である
 
-- ブランチ・リポジトリ戦略を定めないと、運用・セキュリティ管理が困難になる。
+- ブランチ・リポジトリ戦略を前もって定めないと、維持年数の経過や基盤拡大に従って基盤を管理しきれなくなり、運用が困難になる。
 - CICDをトリガーするソースとなるGitHubイベントに応じて、実環境へのデプロイが自動的に行われる
   - 権限統制の仕組みづくりをインフラストラクチャレベルで考慮しておかないと、デプロイ事故・不正に繋がる
 
@@ -70,7 +72,7 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
 
 - GitHub Apps
   - 本文書の範囲では、CICDでリポジトリ間の書き込みを行うための、マシンユーザーだと思って良い。
-  - 単純なマシンユーザーと比較して、ユーザーの枠を専有しない・一時トークンの発行が楽など多くのメリットが有る[^zenn-github-app]。
+  - 単純なマシンユーザーと比較して、ユーザーの枠を専有しない・一時トークンの発行が楽など多くのメリットが有る[[解説][zenn-github-app]]。
   - 許可しているアクションは以下の通り。
     | リソース     | アクション     | 説明                                        |
     | :----------- | :------------- | :------------------------------------------ |
@@ -116,7 +118,7 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
     - 不要なCICDのトリガーを避けるため
       - GitHubイベントに応じてCICDをトリガーする際、同じリポジトリだと（作り込みを行わない限り）関係ないリソースの変更に応じてCICD全体がトリガーされてしまう
       - 最悪の場合無限ループに陥る
-    - ガバナンスのため
+    - 権限統制のため
       - Gitリポジトリの権限分割は、リポジトリ単位・ブランチ単位がある。GitHub・GitLab等の主要なVCSにおいて、認可用のロールはリポジトリ単位で振られる
         - リポジトリ単位で分けると運用者・開発者ごとにロールを振ることができ、認可設計し易い
       - CDツールのアクセス対象を分割するため
@@ -126,7 +128,7 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
 
 本小節ではGitHubブランチ戦略、またCIに関連するGitHubイベントを説明する。  
 
-ブランチ戦略を複雑にすればガバナンスやリリース管理は厳密になるが、一方で運用負荷が上昇する。変更の取り込み漏れなどの、ミスが発生するもとにもなる。  
+ブランチ戦略を複雑にすれば権限統制やリリース管理は厳密になるが、一方で運用負荷が上昇する。変更の取り込み漏れなどの、ミスが発生するもとにもなる。  
 このあたりの事情は[Git Flow][git-flow]・[GitHub Flow][github-flow]・[GitLab Flow][gitlab-flow]・[Trunc base flow][trunc-base-flow]などの有名な戦略を学び、自身のプロダクトに合ったものを採用するのがよいだろう。  
 それぞれの戦略の比較としては、GitLab Flowの序文がわかりすい。個人的にではあるが、大まかな指針としては、例えば以下のような方針があると考えている。
 
@@ -184,7 +186,7 @@ GitLab Flowを簡素化したものに、CIプロセスを加えた図を以下�
 1. 環境差分の吸収方針
     - 開発環境・本番環境の環境差分は、ConfigMapやSecretなどのK8s機能を用いて吸収する。
     - 換言すれば、K8sマニフェストリポジトリの `overlays/{prd|dev}/.env` ファイルなどで吸収する。
-      - 12 factor app(若干古いが)にもあるベストプラクティスである[^12factor-app-config]。
+      - [12 factor app][12factor-app-config] (若干古いが)にもあるベストプラクティスである 。
     - *アプリケーションリポジトリでブランチ分割しているからとしてそちらで環境差分を吸収しないこと*。
       - 環境毎にアプリケーションコードに差分が存在するのは、悪夢である。
 1. Kustomizeを利用しているが、環境毎にHelm Chartをデプロイしたい
@@ -197,7 +199,7 @@ GitLab Flowを簡素化したものに、CIプロセスを加えた図を以下�
 #### ArgoCD概要
 
 ArgoCDはGitOpsに基づきK8sクラスタにデプロイを行う[CNCF Incubating Project][cncf-argocd]である。  
-GitHub[GitHub][github-argocd]にコードが公開されている。  
+[GitHub][github-argocd]にコードが公開されている。  
 他のメジャーなCDツールの比較の概要を以下に示す。
 
 - K8s以外のデプロイにも利用できる[Jenkins][jenkins] や [Sppinaker][spinnaker] と比較して、K8sに特化している分簡単に利用できる。
@@ -208,13 +210,72 @@ GitHub[GitHub][github-argocd]にコードが公開されている。
 
 ArgoCDの基本的なリソースと概要を以下表に示す。詳細は[公式ページ][argocd]参照のこと。
 
-| リソース       | 概要                                                                                              |
-| :------------- | :------------------------------------------------------------------------------------------------ |
-| Application    | GitOps対象のリポジトリを指定するArgoCD CRD                                                        |
-| Project        | マルチテナント時の権限分割に用いる[^argocd-project]。Applicationのまとまりの権限境界となる。      |
-| ApplicationSet | ApplicationをTemplate化し、一括で生成する。GitHubリポジトリパスのパターンマッチなどが利用できる。 |
+| リソース       | 概要                                                                                                                         |
+| :------------- | :--------------------------------------------------------------------------------------------------------------------------- |
+| Application    | GitOps対象のリポジトリを指定するArgoCD CRD                                                                                   |
+| Project        | マルチテナント時の権限分割に用いる[^argocd-project]。Applicationのまとまりの権限境界となる                                   |
+| ApplicationSet | ApplicationをTemplate化し、一括で生成する。例えば、GitHubリポジトリパスのパターンに合致するパスのAppliactionを一括作成できる |
+
+典型的な Application + Project のみを利用した構成例を以下図に示す。
+
+![argocd-application](/images/cicd-eks-github-argocd/argocd-application.drawio.png)
+
+ポイントは以下の通り
+
+- Project `prd` は `prd` NSへのデプロイを許可されたProjectである。
+- Application `sample-app` は以下に設置されたマニフェスト (`kustomizaton.yaml) を継続的に監視し、変更を反映してデプロイする。
+  - リポジトリ: `https://github.com/<user_name>/k8s-manifest-repo.git`
+  - パス: `application/sample-app/overlays/prd`
+- ArgoCDは、 `kustomization.yaml` の内容に応じて、EKSクラスタに `Service` や `Deployment` がデプロイする
+
+その他GitHub WebHookとの連携やSlack通知など、そこそこ簡単にでき実際の運用では重要な機能もあるが、本筋と関係ないため省略する。
+
+#### ApplicationSetを用いたリソースの一括デプロイ
+
+ArgocdApplicationSet CRDは、Applicationのtemplateを一括でプロイする仕組みである[^argocd-applicationset-go-template]。  
+従来、Applicationの一括管理はApp of Appsパターンなどが用いられてきたが、今回はApplicationSetを利用する[^argocd-app-of-apps]。  
+ArgoCD v2.3からArgoCD AppliactionSetは標準インストールに同梱されており、気軽に利用することができる。  
+ArgoCD ApplicationSet機能には以下のメリットがある。ArgoCD公式ドキュメントの[monorepos]ユースケース例も参照すると良い。
+
+- 複数のApplicationを一括でプロイできる
+  - マルチクラスタ・マルチNSを指定可能
+  - クラスタにbootstrapで複数のリソースをデプロイしたいとき、手間が省ける[^argocd-applicationset-bootstrap]
+  - Gitリポジトリパスパターンマッチを利用して、パターンにマッチする複数のパスのApplicationを一括デプロイできる
+- 宣言的なApplicationの作成を強制できる
+  - Applicationの直接の作成を禁止し、Gitリポジトリに設置されたマニフェストのみデプロイ可能とする
+  - GitリポジトリのSingle source of truthとしての信頼性が上昇する
+- Templateの一部をハードコーディングすることで、要件に応じたApplicationの作成が保証できる
+  - 例えば、Proectを `dev` とすることで、作成されるApplicationのProjectを `dev` に制限できる
+
+上記により、CDツールを採用することでの利便性を享受しつつ、権限統制要件に応じたリソースデプロイが可能になる[^argocd-applicationset-git-generator]。  
+
+前置きが長くなったが、以下にArgoCDのアーキテクチャ図を示す。  
 
 ![argocd-applicationset](/images/cicd-eks-github-argocd/argocd-applicationset.drawio.png)
+
+ApplicationSet `boostrap` のみ説明すれば残りの意味も掴めると思うので、 `bootstrap` のみに絞って解説する。
+
+- 用途
+  - クラスターのboostrapに必要なリソースを一括でプロイする
+  - 今回の例ではインターネットアクセス用の[NginxIngress][ingress-nginx]を対象としている。
+- Gitリポジトリ監視対象
+  - `main` ブランチ
+    - Bootrapに用いる重要なアプリケーションのため、運用管理者が作成する前提とする。後の権限統制も参照。
+  - `application/bootstrap/*` パス
+    - `application/bootstrap/nginx-ingress`
+      - [URL][github-k8s-manifest-nginx-ingress]
+      - NginxIngress Helm chartをデプロイする
+    - `application/bootstrap/virtual-server`
+      - [URL][github-k8s-manifest-virtual-server]
+      - NginxIngress CRDの VirtualServer をデプロイする
+- 作成されるApplication
+  - Template機能 `{{path.basename}}` を利用して、ディレクトリ名をアプリケーション名とする
+    - `nginx-ingress`
+    - `virtual-server`
+
+上記のApplicationがデプロイされることにより、boostrapに必要なK8sリソースが一括でプロイされることになる。  
+今回の場合は、ApplicationSetをTerraform中でデプロイすることにより、EKSのデプロイと同時にArgoCDのデプロイと、インターネットアクセスが可能になっている。  
+詳細はTerraformセクション参照。
 
 ### 権限統制
 
@@ -224,9 +285,15 @@ ArgoCDの基本的なリソースと概要を以下表に示す。詳細は[公�
 厳しすぎる権限統制は開発効率を落とす一方で、緩すぎる権限統制は不正デプロイなどのインシデントに直結する。
 両極限を加味した上で、開発者・運用者双方が権限統制の意義を理解し、合意した上で適切な権限統制を設定すること。
 
-以下図に本文書での権限統制の概念図を示す。ArgoCDはDexを用いてGitHubとのOAuth連携を行うため[^argocd-user-management]、GitHubでの認証・認可はArgoCDの認証・認可に深い関わりを持つ。
+以下図に本文書での権限統制の概念図を示す。  
+[ArgoCD Dex][argocd-user-management]を用いてGitHubとのOAuth連携を行うため、GitHubでの認証・認可はArgoCDの認証・認可と関連する。
 
 ![cicd-authorization](/images/cicd-eks-github-argocd/cicd-authorization.drawio.png)
+
+以下GitHubリポジトリ・ArgoCDそれぞれに対して詳しい説明をするが、設定方針の概略は以下の通りである。
+
+- 本番環境 `prd` NSは運用者のみがデプロイ権限を持つこと
+- 開発環境 `dev` NSは開発者・運用者がデプロイ権限を持つこと
 
 #### GitHubリポジトリ
 
@@ -237,7 +304,7 @@ GitHubのブランチ保護設定 `Restrict who can push to matching branches` �
 - (Team以上) Organizationの特定グループ・ユーザーのみに制限
 - (Team以上) 特定のGitHub Appに制限
 
-これを利用して、本番環境ブランチへのMergeを統制する[^github-organization-free]。  
+これを利用して、本番環境ブランチへのMergeを統制する [^github-organization-free] 。
 
 | リポジトリ                 | ブランチ | 役割                                                  | Merge可能なロール |
 | :------------------------- | :------- | :---------------------------------------------------- | :---------------- |
@@ -248,7 +315,7 @@ GitHubのブランチ保護設定 `Restrict who can push to matching branches` �
 
 GitHubリポジトリでのアクター・ロールを以下のように定める。GitHub Appだけは特殊だが、本文書の設定だと大体Writeと同じ。
 
-| アクター         | リポジトリ                 | ロール   | 説明                                                                 |
+| アクター         | リポジトリ                 | ロール   | 説明・理由                                                                 |
 | :--------------- | :------------------------- | :------- | :------------------------------------------------------------------- |
 | Developer        | アプリケーションリポジトリ | Write    | 開発環境ブランチへの `push` や、本番環境ブランチへの PR を行うため。 |
 | Developer leader | アプリケーションリポジトリ | Maintain | 本番環境ブランチのPRを承認するため。                                 |
@@ -282,28 +349,37 @@ p, role:developer, applications, sync, dev/*, allow
 p, role:developer, exec, create, dev/*, allow
 ```
 
-### Appendix: ネットワーク経路
+### ネットワーク経路 (Appendix)
 
-本小節はネットワーク設定を説明する。  
-CICD自体とは関係ないため、飛ばして良い。
+本小節はネットワーク設定を説明する。CICD自体とは関係ないため、飛ばして良い。  
+NginxIngress VitrualServer CRD自体は[非常に良い解説][thinkit-nginx-ingress]がある。
+
+以下に概要図を示す。特段特殊なことはしていないので、説明は省略する。
+設定意図などの思想は[GitHub上][github-toyamagu-cicd-documents-design-internet-access]にまとめている。興味があれば参照されたい。
 
 ![network](/images/cicd-eks-github-argocd/network.drawio.png)
 
 [^argocd-helm]: TerraformでKustomizeかHelmをインストールする場合、Helmのほうが楽である。ただし、以下理由からプロダクションでの採用は慎重に検討した方が良いと考える。1) ArgoCD Helm chartはcommunity maintainedであるため、公式のマニフェストと比べると若干信頼性に欠ける面がある。2) 頻繁にリリースが行わているため、追従するのは若干大変。3) 公式のバージョンサポートはN, N-1型だが、helmチャートの方は最新マイナーバージョンのみサポートされているようだ。左記の問題点があるため、コアな部分のみ公式のチャートをkustomizeし、ApplicationSet・Application・Projectの部分のみ部分的にargocd-appsチャートを利用するのでも十分便利に利用できると思う。個人的な検証用途だが、Kustomizeを用いたArgoCD インストール Terraform module例の[リンク](https://github.com/toyamagu-2021/terraform-argocd-kustomize)を張っておく。
-[^github-organization-free]: GitHub Organization Freeではユーザーグループ毎の細かい権限制御ができないため、Enterprise版に比べてだいぶ粗いものになる。  
 [^gitlab-flow]: 必要に応じてリリースブランチや、ステージング環境用のブランチを追加する。
+[^github-organization-free]: GitHubOrganizationFreeではユーザーグループ毎の細かい権限制御ができないため、Enterprise版に比べてだいぶ粗いものになる。
 [^k8s-manifest-push]: PRでもよい。
 [^cicd-checkout-k8s-manifest]: checkoutしてからPRするのは、devブランチの断面保管のため。
 [^kustomize-branch]: もちろん、必要に応じて環境ごとにブランチ分けしてもよい。
 [^kustomize-directory]: [公式](https://github.com/kubernetes-sigs/kustomize/blob/master/examples/helloWorld/README.md#compare-overlays)より引用した。
-[^12factor-app-config]: <https://12factor.net/config>
 [^governance]: 個人的な感想だが、CICD基盤の権限統制はガードレールと呼ぶのが好きである。開発を車の走行に例えると、ガードレールの役割は車の速度を抑えるためにあるのではない。車の損傷や人的な被害を抑えるためにある。
-[^zenn-github-app]: <https://zenn.dev/tatsuo48/articles/72c8939bbc6329>
 [^argocd-read]: デフォルトの `read-only` ロールを用いる。ログに対する読み取り権限も与えてしまう。本番環境では許容できないかもしれないので、検討する。
 [^argocd-exec]: `kubectl exec` とほぼ同じ
-[^argocd-user-management]: <https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/>
 [^argocd-project]: 権限統制の他にも、定期的なデプロイやOrphaned resourceの検出等、様々な機能がある。本文書では権限統制以外の目的には用いない。
+[^argocd-applicationset-go-template]: [goTemplate機能](https://argo-cd.readthedocs.io/en/latest/operator-manual/applicationset/GoTemplate/)が v2.5から実装される。現在v2.5はstableでないので注意。
+[^argocd-app-of-apps]: App of Apps パターンに関する諸注意
+    - App of Appsパターンには[実質的に全てのProjectにデプロイ可能になってしまうなどの問題があった][argocd-issue-2785]。  
+      これはv2.5からの[Application in any namespace機能][https://github.com/argoproj/argo-cd/pull/9755]で部分的に解消される見込みだが、以下の理由から採用は慎重に検討する必要がある。
+      - [Beta機能である][argocd-application-in-any-namespace]
+      - 現時点ではクラスタ内の任意のNSでのApplication作成を想定しており、クラスタ間がサポートされるかは未定である
+[^argocd-applicationset-git-generator]: 今回はGit Generatorの中でも基本的な[Directories][argocd-applicationset-directories]を用いる。Gitリポジトリに設置した config ファイルを参照してデプロイ先クラスターを指定するなどもできる。[Files][argocd-applicationset-files]を参照。
+[^argocd-applicatonset-bootstrap]: Prometheusや、ServiceMesh製品などインフラに近いリソースはbootstrapに含めてしまいたいという気持ちになる。
 
+[argocd-issue-2785]: https://github.com/argoproj/argo-cd/issues/2785
 [eks]: https://aws.amazon.com/jp/eks/
 [github-actions]: https://github.com/features/actions
 [argocd]: https://argo-cd.readthedocs.io/en/stable/
@@ -325,3 +401,16 @@ CICD自体とは関係ないため、飛ばして良い。
 [argo-rollout]: https://argoproj.github.io/argo-rollouts/
 [argo-workflows]: https://argoproj.github.io/argo-workflows/
 [kustomize]: https://kustomize.io/
+[argocd-application-in-any-namespace]: https://argo-cd--10678.org.readthedocs.build/en/10678/operator-manual/app-any-namespace/
+[monorepos]: https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Use-Cases/#use-case-monorepos
+[argocd-applicationset-directories]: https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Generators-Git/#git-generator-directories
+[argocd-applicationset-files]: https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Generators-Git/#git-generator-files
+[argocd-user-management]: https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management
+[12factor-app-config]: https://12factor.net/config
+[github-k8s-manifest-nginx-ingress]: https://github.com/toyamagu-cicd/argocd-cicd-k8s-manifest/tree/main/application/bootstrap/nginx-ingress
+[github-k8s-manifest-virtual-server]: https://github.com/toyamagu-cicd/argocd-cicd-k8s-manifest/tree/main/application/bootstrap/virtual-server
+[ingress-nginx]: https://github.com/kubernetes/ingress-nginx
+[thinkit-nginx-ingress]: https://thinkit.co.jp/article/18771
+[github-toyamagu-cicd-documents-design-internet-access]: https://github.com/toyamagu-cicd/document/blob/argocd-cicd/argocd-cicd/design.md#internet-access
+[terraform]: https://www.terraform.io/
+[zenn-github-app]: https://zenn.dev/tatsuo48/articles/72c8939bbc6329
