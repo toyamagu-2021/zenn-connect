@@ -6,21 +6,6 @@ topics: ["kubernetes", "konstraint", "conftest", "gatekeeper", "gator"]
 published: true
 ---
 
-- [Abstract](#abstract)
-- [Introduction](#introduction)
-  - [Background](#background)
-  - [Example](#example)
-  - [Source code](#source-code)
-- [Conftest](#conftest)
-  - [Code](#code)
-  - [Test](#test)
-- [Konstraint](#konstraint)
-- [Gator](#gator)
-- [CI/CD](#cicd)
-- [Test in a Kind cluster](#test-in-a-kind-cluster)
-- [Conclusion](#conclusion)
-- [References](#references)
-
 ## Abstract
 
 Kubernetes (K8s) のマニフェストのバリデーションを行う手法を解説する。  
@@ -116,14 +101,14 @@ spec:
 
 ### Source code
 
-本解説で用いるソースコードは全てGithub 上にある[^toyamagu-konstraint-examples]。
+本解説で用いるソースコードは全てGithub 上にある[^toyamagu-konstraint-example]。
 
 ## Conftest
 
 ### Code
 
 まず、Rego言語を用いて `default` Projectへのデプロイを禁止にする。  
-コードの例を以下に示す[^toyamagu-konstraint-examples-argocd]。
+コードの例を以下に示す[^toyamagu-konstraint-example-argocd]。
 
 ```rego:src.rego
 # METADATA
@@ -288,7 +273,7 @@ gator verify ./argocd/argocd-deny-app-in-default-project/
 ```
 
 ```bash:output
-ok      home/toyamagu/github.com/toyamagu-2021/konstraint-examples/argocd/argocd-deny-app-in-default-project/suite.yaml 0.017s
+ok      home/toyamagu/github.com/toyamagu-2021/konstraint-example/argocd/argocd-deny-app-in-default-project/suite.yaml 0.017s
 PASS
 ```
 
@@ -356,12 +341,12 @@ ConftestやKonstraintを用いた、優れた解説は以前からあった [^ni
 [^argocd]: <https://argo-cd.readthedocs.io/en/stable/>
 [^argocd-project]: <https://argo-cd.readthedocs.io/en/stable/user-guide/projects/>
 [^footnote-argocd]: RBACを用いて制限するという手もあるが、ArgoCD v2.4.xでapp of apps パターンを用いる場合などは、開発者がhackできる可能性がある。
-[^toyamagu-konstraint-examples]: <https://github.com/toyamagu-2021/konstraint-examples>
-[^toyamagu-konstraint-examples-argocd]: <https://github.com/toyamagu-2021/konstraint-examples/blob/main/argocd/argocd-deny-app-in-default-project/>
+[^toyamagu-konstraint-example]: <https://github.com/toyamagu-2021/konstraint-example>
+[^toyamagu-konstraint-example-argocd]: <https://github.com/toyamagu-2021/konstraint-example/blob/main/argocd/argocd-deny-app-in-default-project/>
 [^mercari-introduce_conftest]: <https://engineering.mercari.com/blog/entry/introduce_conftest/>
 [^gator-suites]: <https://open-policy-agent.github.io/gatekeeper/website/docs/gator#suites>
-[^test-and-run]: <https://github.com/toyamagu-2021/konstraint-examples/blob/main/scripts/test-and-run.sh>
-[^konstraint-github-actions]: <https://github.com/toyamagu-2021/konstraint-examples/blob/main/.github/workflows/konstraint.yaml>
-[^kind-with-argocd-and-gatekeeper]: <https://github.com/toyamagu-2021/konstraint-examples/blob/main/scripts/kind-with-argocd-and-gatekeeper.sh>
+[^test-and-run]: <https://github.com/toyamagu-2021/konstraint-example/blob/main/scripts/test-and-run.sh>
+[^konstraint-github-actions]: <https://github.com/toyamagu-2021/konstraint-example/blob/main/.github/workflows/konstraint.yaml>
+[^kind-with-argocd-and-gatekeeper]: <https://github.com/toyamagu-2021/konstraint-example/blob/main/scripts/kind-with-argocd-and-gatekeeper.sh>
 [^conftest-policy-engine]: <https://github.com/open-policy-agent/conftest/blob/108edfe44f247c2048ed7247f6ea28cea72bcb26/policy/engine.go#L401>
 [^gator-case]: <https://open-policy-agent.github.io/gatekeeper/website/docs/gator/#cases>
