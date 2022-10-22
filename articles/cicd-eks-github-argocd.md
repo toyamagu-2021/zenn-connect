@@ -1,5 +1,5 @@
 ---
-title: "Terraformで作る、GitHubとArgoCDを用いたKubernetes(EKS)へのCICD -設計編-"
+title: "Terraformで作る、GitHubとArgoCDを用いたKubernetes(EKS)へのCICD"
 emoji: "🌸"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["kubernetes", "github", "cicd", "argocd", "eks"]
@@ -111,6 +111,9 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
 1. ArgoCDは以下のようなCDを行う。
     - `argocd-cicd-k8s-manifest` リポジトリを監視し、K8sマニフェストの変更に応じてEKSにデプロイを行う
 
+実際の運用の際は `argocd-cicd-k8s-manifest` リポジトリでも[Open Policy Agent][opa]や[Conftest][conftest]等を用いたK8sマニフェストのコンプライアンスチェックなどを行うのが良いだろう。  
+今回はスコープ外とする。
+
 以下に注意点を記述する。
 
 1. アプリケーション用のリポジトリと、K8sマニフェスト用のリポジトリを分ける理由
@@ -125,7 +128,11 @@ CICDは以下観点から現在のアーキテクチャにおいて重要なも�
       - CDツールのアクセス対象を分割するため
     - その他、[ArgoCDのベストプラクティス][argocd-best-practices]に詳述されているため参照
 
-### GitHubブランチ戦略
+### GitHub
+
+本小説ではGitHub関連の情報を記述する。
+
+#### ブランチ戦略
 
 本小節ではGitHubブランチ戦略、またCIに関連するGitHubイベントを説明する。  
 
@@ -192,8 +199,44 @@ GitLab Flowを簡素化したものに、CIプロセスを加えた図を以下�
       - 環境毎にアプリケーションコードに差分が存在するのは、悪夢である。
 1. Kustomizeを利用しているが、環境毎にHelm Chartをデプロイしたい
     - KustomizeはHelmをサポートしている。`kustomize build` 時にオプションを有効にする必要があるので、ArgoCDの設定で有効化すること。
+1. コンテナタグ
+    - CDツールはマニフェストの差分を検知するため、コンテナタグには各コミットで一意なものを用いること
+    - `latest` などは変更なしとみなされデプロイされない
+    - 開発環境ではコミットハッシュを利用するのが最も簡単であるため、コミットハッシュをそのままタグに利用すればよいだろう
+    - 本番環境でもコミットハッシュを用いるのも一つの手である本文書中では簡単のためコミットハッシュにしてある
+      - ただし、CICDのトリガーをmainブランチへのMergeからReleaseタグの発行に変更し、 `vx.y.z` などをタグ付けに利用するのが一番認知不可が低いのではないかと言うのが個人的な見解である
 
-#### コード例
+#### CICD Secret管理
+
+本小説ではCICD Secret管理について記述する
+
+GitHub Action実行時にも資格情報が必要になる。例えば以下の用途があるだろう。
+
+- CI中でのアーティファクトプッシュのための、アーティファクトリポジトリの認証情報
+- CI中での統合テストのために、クラウドの認証情報
+- DBテストのための、DBの認証情報
+
+Secretの保存先は以下の2通りがある。
+
+1. Repository Secret
+    - GitHubリポジトリに直接Secretを保管する
+    - 特定リポジトリのみ使用するSecret情報はこちらで良い。リポジトリの管理者にSecret利用権限を委任したい場合なども利用できる。
+1. Organization Secret
+    - GitHub OrganizationにSecretを保管し、リポジトリにアタッチする
+    - Organization中で共有する場合に有用
+
+本文書のアーキテクチャでは以下の認証情報が必要である。実際のコードは [コード例](#CICDコード例)参照。
+
+1. ECRリポジトリの認証情報
+    - AWSの認証情報
+    - 一時的な認証情報を利用するため、[GitHub OIDC][configuring-openid-connect-in-amazon-web-services]を用いる
+    - IAMロールのARNをRepository Secretとして登録する
+      - 特に秘匿する必要はないが、外部から変数を与える方法がSecretしかないため
+1. K8sマニフェストリポジトリのための認証情報
+    - GitHubの認証情報
+    - 一時的な認証情報を利用するため、GitHub Appsを用いる
+    - Organization内で共有するため、GitHub App秘密鍵をOrganization Secretとして登録する
+### CICDコード例
 
 [toyamagu-cicd/argocd-cicd-application][toyamagu-cicd-argocd-cicd-application] に設置した。
 コアな部分は以下である。  
@@ -226,7 +269,7 @@ GitLab Flowを簡素化したものに、CIプロセスを加えた図を以下�
 - Login と Build Image
   - タグにコミットハッシュを指定
   - プレフィックスにブランチ名を指定
-    - 勿論、実際の運用ではリポジトリを分けるべきだし、そもそも、本番と開発のECRリポジトリでAWSアカウント自体を分けるべきだろう。
+    - 勿論、実際の運用ではECRリポジトリを分けるべきだし、そもそも、本番と開発のECRリポジトリでAWSアカウント自体を分けるべきだろう。
 
   ```yaml
   - name: Login to Amazon ECR
@@ -295,7 +338,7 @@ ArgoCDはGitOpsに基づきK8sクラスタにデプロイを行う[CNCF Incubati
   - 主観だが、GitOpsの思想にもArgoCDのほうがより忠実であると感じる。
 - K8sに特化したツールであるFluxCDよりは機能が豊富
   - ユーザー管理など
-- [ArgoWorkflows][argo-workflows] [ArgoRollout][argo-rollout] など、周辺プロダクトも優秀。
+- [ArgoWorkflows][argo-workflows]・[ArgoRollout][argo-rollout] など、周辺プロダクトも優秀。
 
 ArgoCDの基本的なリソースと概要を以下表に示す。詳細は[公式ページ][argocd]参照のこと。
 
@@ -316,6 +359,31 @@ ArgoCDの基本的なリソースと概要を以下表に示す。詳細は[公�
   - リポジトリ: `https://github.com/<user_name>/k8s-manifest-repo.git`
   - パス: `application/sample-app/overlays/prd`
 - ArgoCDは、 `kustomization.yaml` の内容に応じて、EKSクラスタに `Service` や `Deployment` がデプロイする
+
+yamlの例としては以下のようになる。
+
+```yaml: application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: guestbook
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: prd
+
+  source:
+    repoURL: https://github.com/toyamagu-cicd/argocd-cicd-k8s-manifest.git  # Can point to either a Helm chart repo or a git repo.
+    targetRevision: main  # For Helm, this refers to the chart version.
+    path: application/sample-app/overlays/prd
+
+  # Destination cluster and namespace to deploy the application
+  destination:
+    server: https://kubernetes.default.svc
+    # The namespace will only be set for namespace-scoped resources that have not set a value for .metadata.namespace
+    namespace: prd
+```
 
 その他GitHub WebHookとの連携やSlack通知など、そこそこ簡単にでき実際の運用では重要な機能もあるが、本筋と関係ないため省略する。
 
@@ -367,15 +435,45 @@ ApplicationSet `boostrap` のみ説明すれば残りの意味も掴めると思
 今回の場合は、ApplicationSetをTerraform中でデプロイすることにより、EKSのデプロイと同時にArgoCDのデプロイと、インターネットアクセスが可能になっている。  
 詳細はTerraformセクション参照。
 
-#### Secret管理
+yamlとしては以下のようになる。
 
-CICDを行う場合、Secret管理は切り離せない関係にあるため、この節で簡単に言及しておく。  
-実際、ArgoCDをデプロイするためにもプライベートGitリポジトリの資格情報や、OAuth用クライアントシークレットなどが必要である。
+```yaml: applicationset.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: bootstrap
+  namespace: argocd
+spec:
+  generators:
+  - git:
+      repoURL: https://github.com/toyamagu-cicd/argocd-cicd-k8s-manifest.git
+      revision: main
+      directories:
+      - path: "application/*/overlays/prd"
+  template:
+    metadata:
+      name: '{{path.basename}}'
+    spec:
+      project: bootstrap
+      source:
+        repoURL: https://github.com/toyamagu-cicd/argocd-cicd-k8s-manifest.git
+        targetRevision: main
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{path.basename}}'
+```
+
+
+#### K8s Secret管理
+
+CICDを行う場合、K8s Secret管理は切り離せない関係にあるため、この節で簡単に言及しておく。  
+実際、ArgoCDを運用するためにもプライベートGitリポジトリの資格情報や、OAuth用クライアントシークレットなどが必要である。
 
 GitOpsは全ての情報がGitリポジトリに格納されていることを理想とするが、勿論資格情報などをGitリポジトリに格納してはいけない。  
-[sealed-secrets][sealed-secrets]などを用いて暗号化した上でGitリポジトリに格納することも可能だが、オペレーション事故などが怖い。  
+[sealed-secrets][sealed-secrets]などを用いて暗号化した上でGitリポジトリに格納することも可能だが、鍵を用意して都度暗号化しないといけないため手間が増え、オペレーション事故などが怖い。  
 そのため、各クラウドのシークレットストレージや、[HashiCorp Vault][vault]の外部ストレージを用いるのがとっつきやすいと思われる。  
-本文書では AWS SyatemsManager ParameterStoreに資格情報を格納することにする。  
+本文書では AWS SystemsManager ParameterStoreに資格情報を格納することにする。  
 AWS SecretsManagerを利用しないのは、料金がかかるのと、消去するのが若干面倒だからである。  
 本番運用ではAWS SecretsManagerの方が機能面で優れているので、そちらを優先するとよいだろう。  
 
@@ -390,10 +488,22 @@ AWS SecretsManagerを利用しないのは、料金がかかるのと、消去�
   - Terraformのdataで外部ストレージからデータを拾ってきてK8s providerを用いてSecretをデプロイする。
   - K8sクラスタに追加のリソースをデプロイしなくて良いが、`.tfstate` にデータが残ってしまうのが難点。
 
-個人的には、Podに資格情報をマウントする前提なら、SecretsStoreを用いると楽であると考える。[AWSの公式ドキュメント][secrets-store-csi-driver-aws]も充実している。  
+個人的には、Podに資格情報をマウントする前提なら、SecretsStoreを用いると楽であると考える。  
+[AWSの公式ドキュメント][secrets-store-csi-driver-aws]も充実している。  
 本文書では追加のリソースが必要ないという簡便さを重視してTerraformでSecretsをデプロイする。*推奨はしない*。  
 SecretsStoreに拡張するのは容易である。
 さらなる詳細はTerraformセクションに譲る。
+
+#### Helm Chart利用方法
+
+ArgoCDも含むArgoファミリーには公式のHelm chartがないが、[Community maintainedなHelm chartが存在し][argo-helm]、現在も活発にメンテナンスされている。  
+この `argo-cd` Helm chartを利用することになる。  
+
+上記に加えて、 `argocd-apps` Helm chartがある[^argocd-apps]。  
+このHelm chartでは、Application・Project・ApplicationSetがインストールできる。  
+
+クラスター作成と同時にArgoCDのインストールや、ApplicationSet、Projectの作成まで終わっていると手作業でセットアップする手間が省ける。
+そこで、本文書では[Terraform helm provider][terraform-helm-provider]を用いてTerraform中で上記Helm chartのインストールを行っている。
 
 ### 権限統制
 
@@ -448,12 +558,12 @@ GitHubリポジトリでのアクター・ロールを以下のように定め�
 
 以下表のようにRBAC設計を定める。
 
-| アクター          | 対象          | アクション | `project/obeject` | 説明                                                                             |
-| :---------------- | :------------ | :--------- | :---------------- | :------------------------------------------------------------------------------- |
-| 全て              | `*`           | `get`      | `*/*`             | 全てのアクターに対して、全てのリソースに対する読み取り許可を与える[^argocd-read] |
-| Operator          | `*`           | `admin`    | `*/*`             | 運用管理のため、全てのリソースに対する全ての許可を与える                         |
-| Developer(leader) | `application` | `sync`     | `dev/*`           | 開発者に開発環境へのデプロイ権限を与える                                         |
-|                   | `application` | `exec`     | `dev/*`           | 開発者に開発環境Podの `exec` 権限を与える[^argocd-exec]                          |
+| アクター          | 対象          | アクション | `project/object` | 説明・理由                                                                         |
+| :---------------- | :------------ | :--------- | :--------------- | :--------------------------------------------------------------------------------- |
+| 全て              | `*`           | `get`      | `*/*`            | 全てのアクターに対し、全てのリソースに対する読み取り許可を与えるため[^argocd-read] |
+| Operator          | `*`           | `admin`    | `*/*`            | 運用管理のため、全てのリソースに対する全ての許可を与えるため                       |
+| Developer(leader) | `application` | `sync`     | `dev/*`          | 開発者に開発環境へのデプロイ権限を与えるため                                       |
+|                   | `application` | `exec`     | `dev/*`          | 開発者に開発環境Podの `exec` 権限を与えるため[^argocd-exec]                        |
 
 上記をコード化すると以下のようになる
 
@@ -535,15 +645,25 @@ Terraformを用いたSecrets管理は[こちらのブログ][handling-secrets-wi
 
 #### Terraformコード
 
-全て `toyamagu-cicd/terraform-argocd-cicd` 以下に格納している。
+全て [`toyamagu-cicd/terraform-argocd-cicd`][terraform-argocd-cicd] 以下に格納している。
 
 - GitHub関連
   - `resources/github`
 - ArgoCD関連
   - `resources/argocd`
 
-長くなったが、上記のTerraformコードにより本文書で記述されたほとんどのリソースがデプロイされる。
+上記のTerraformコードにより本文書で記述されたほとんどのリソースがデプロイされる。
 手順の概略は `README.md` にある。
+
+## まとめ
+
+本文書ではGitHub Actions・ArgoCDをCICDツールとして用い、EKSにデプロイを行う方法を記載した。  
+設定は検証用途のため粗い部分も多いが、本番環境での運用も見据えて、抑えるべきポイントは抑えたつもりである。  
+また、インフラストラクチャに近い部分の管理は全てTerraformで宣言的に行うという思想のもと、極力Terraformコマンドを実行するだけで必要なリソースが立ち上がるようにした。
+
+途中力付きた部分もあるので、説明が少ない・あるいは誤っている部分があれば、喜んで修正したい。指摘を歓迎します。
+
+本文書がK8s運用の自動化に向けて、なにかの参考になれば幸いである。
 
 ## References
 
@@ -561,12 +681,13 @@ Terraformを用いたSecrets管理は[こちらのブログ][handling-secrets-wi
 [^argocd-applicationset-go-template]: [goTemplate機能](https://argo-cd.readthedocs.io/en/latest/operator-manual/applicationset/GoTemplate/)が v2.5から実装される。現在v2.5はstableでないので注意。
 [^argocd-app-of-apps]: App of Apps パターンに関する諸注意
     - App of Appsパターンには[実質的に全てのProjectにデプロイ可能になってしまうなどの問題があった][argocd-issue-2785]。  
-      これはv2.5からの[Application in any namespace機能][https://github.com/argoproj/argo-cd/pull/9755]で部分的に解消される見込みだが、以下の理由から採用は慎重に検討する必要がある。
+      これはv2.5からの[Application in any namespace機能][argocd-pr-application-in-any-namespace]で部分的に解消される見込みだが、以下の理由から採用は慎重に検討する必要がある。
       - [Beta機能である][argocd-application-in-any-namespace]
       - 現時点ではクラスタ内の任意のNSでのApplication作成を想定しており、クラスタ間がサポートされるかは未定である
 [^argocd-applicationset-git-generator]: 今回はGit Generatorの中でも基本的な[Directories][argocd-applicationset-directories]を用いる。Gitリポジトリに設置した config ファイルを参照してデプロイ先クラスターを指定するなどもできる。[Files][argocd-applicationset-files]を参照。
-[^argocd-applicationset-bootstrap]: Prometheusや、ServiceMesh製品などインフラに近いリソースはbootstrapに含めてしまいたいというお気持ちになる。
+[^argocd-applicationset-bootstrap]: Prometheusや、ServiceMesh、GateKeeperなどインフラに近いリソースはbootstrapに含めてしまいたいというお気持ちになる。
 [^atlantis]: TerraformCloudをよく使っているが、[atlantis][atlantis]も面白そうで使ってみたいというお気持ちはある。PRをMergeした後にエラーが出るのはしんどい。
+[^argocd-apps]: v5.0.0から `argo-cd` Helm chartから分離した。ArgoCD CRDをHelm chart内に含める際に、CRDに依存している部分があると良くないということで外だしされたようである。興味がある人は[PR][argo-helm-pr-manage-crd-by-helm]参照のこと。
 
 [atlantis]: https://www.runatlantis.io/
 [argocd-issue-2785]: https://github.com/argoproj/argo-cd/issues/2785
@@ -616,3 +737,9 @@ Terraformを用いたSecrets管理は[こちらのブログ][handling-secrets-wi
 [toyamagu-cicd-argocd-cicd-application]: https://github.com/toyamagu-cicd/argocd-cicd-application/blob/main/.github/workflows/push.yaml
 [configuring-openid-connect-in-amazon-web-services]: https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services
 [zenn-github-actions-support-openid-connect]: https://zenn.dev/miyajan/articles/github-actions-support-openid-connect
+[conftest]: https://www.conftest.dev/
+[opa]: https://www.openpolicyagent.org/
+[terraform-argocd-cicd]: https://github.com/toyamagu-cicd/terraform-argocd-cicd
+[argo-helm]: https://github.com/argoproj/argo-helm
+[argo-helm-pr-manage-crd-by-helm]: https://github.com/argoproj/argo-helm/pull/1342
+[argocd-pr-application-in-any-namespace]: https://github.com/argoproj/argo-cd/pull/9755
