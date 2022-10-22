@@ -16,7 +16,7 @@ Kubernetes (K8s) や microservice を最大限に活用する上で CICD 基盤�
 - 可能な限りすべてのリソースは宣言的に作成されているか
   - Single Source of Truth を設定し、設定・構成を一箇所に集約するため
   - リソースのドリフトを検出するため
-- CICD基盤の認証認可は、組織の権限統制を反映しているか
+- CICD基盤の認証認可は、組織の権限統制方針を反映しているか
 
 本文書で記述する内容は以下の通り。
 
@@ -664,8 +664,6 @@ Terraformを用いたSecrets管理は[こちらのブログ][handling-secrets-wi
 途中力付きた部分もあるので、説明が少ない・あるいは誤っている部分があれば、喜んで修正したい。指摘を歓迎します。
 
 本文書がK8s運用の自動化に向けて、なにかの参考になれば幸いである。
-
-## References
 
 [^argocd-helm]: TerraformでKustomizeかHelmをインストールする場合、Helmのほうが楽である。ただし、以下理由からプロダクションでの採用は慎重に検討した方が良いと考える。1) ArgoCD Helm chartはcommunity maintainedであるため、公式のマニフェストと比べると若干信頼性に欠ける面がある。2) 頻繁にリリースが行わているため、追従するのは若干大変。3) 公式のバージョンサポートはN, N-1型だが、helmチャートの方は最新マイナーバージョンのみサポートされているようだ。左記の問題点があるため、コアな部分のみ公式のチャートをkustomizeし、ApplicationSet・Application・Projectの部分のみ部分的にargocd-appsチャートを利用するのでも十分便利に利用できると思う。個人的な検証用途だが、Kustomizeを用いたArgoCD インストール Terraform module例の[リンク](https://github.com/toyamagu-2021/terraform-argocd-kustomize)を張っておく。
 [^gitlab-flow]: 必要に応じてリリースブランチや、ステージング環境用のブランチを追加する。
