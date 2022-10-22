@@ -3,7 +3,7 @@ title: "Terraformで作る、GitHubとArgoCDを用いたKubernetes(EKS)へのCIC
 emoji: "🌸"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["kubernetes", "github", "cicd", "argocd", "eks"]
-published: false
+published: true
 ---
 
 ## 概要
