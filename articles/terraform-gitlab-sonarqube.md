@@ -262,6 +262,21 @@ SonarQubeでは内部でElasticSearchを用いているため、ホストOS上�
 sysctl -q -w vm.max_map_count=262144
 ```
 
+コンテナのビルドに用いる `sonarqube.dockerfile` は以下の通り。  
+前述の通り、プラグインを拾ってきて含める形にしてある。  
+[プラグイン作成者が公開しているDockerコンテナ][docker-sonarqube-with-community-branch-plugin]をそのまま拾ってきたり、Docerfileを応用しても良いと思われる。
+
+```dockerfile
+ARG SONARQUBE_VERSION
+FROM sonarqube:${SONARQUBE_VERSION}
+
+ARG PLUGIN_VERSION
+ADD https://github.com/mc1arke/sonarqube-community-branch-plugin/releases/download/${PLUGIN_VERSION}/sonarqube-community-branch-plugin-${PLUGIN_VERSION}.jar /opt/sonarqube/extensions/plugins/
+ENV SONAR_WEB_JAVAADDITIONALOPTS="-javaagent:./extensions/plugins/sonarqube-community-branch-plugin-${PLUGIN_VERSION}.jar=web"
+ENV SONAR_CE_JAVAADDITIONALOPTS="-javaagent:./extensions/plugins/sonarqube-community-branch-plugin-${PLUGIN_VERSION}.jar=ce"
+```
+
+
 ## Terraform
 
 Terraformを用いた構築方法を記述する。特段特別なことはしていないため。コードの解説は省略する。
@@ -380,3 +395,4 @@ GitLabとのOAuth連携方法を記述する。
 [sonarqube-issue-282]: https://github.com/SonarSource/docker-sonarqube/issues/282
 [sonarqube-gitlab-integration]: https://docs.sonarqube.org/latest/analysis/gitlab-integration/
 [sonarqube-gitlab-integration-oauth]: https://docs.sonarqube.org/latest/instance-administration/authentication/gitlab/
+[docker-sonarqube-with-community-branch-plugin]: https://hub.docker.com/r/mc1arke/sonarqube-with-community-branch-plugin/tags
