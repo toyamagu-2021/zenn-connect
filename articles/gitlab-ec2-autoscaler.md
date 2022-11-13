@@ -3,7 +3,7 @@ title: "GitLab EC2 AutoScalerを用いたGitLab Self-Hosted Runnerスケーリ�
 emoji: "🌸"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["gitlab", "gitlabrunner", "aws"]
-published: false
+published: true
 ---
 
 ## 概要
