@@ -209,7 +209,7 @@ RUNNER_TOKEN=$${RUNNER_AUTHENTICATION_TOKEN} envsubst \
 ### SonarQube
 
 SonarQubeは公式からDockerコンテナが提供されている。このCE版を用いる。  
-基本的には [公式サンプル][docker-compose-sonarqube] と同一である。  
+基本的には [公式サンプル][sonarqube-docker-compose] と同一である。  
 
 1. `dockerfile` で [sonarqube-community-branch-plugin][sonarqube-community-branch-plugin] を同梱している。
     - CE版では1ブランチの解析のみ可能なため、このままだと不便だからである。  
@@ -276,7 +276,6 @@ ENV SONAR_WEB_JAVAADDITIONALOPTS="-javaagent:./extensions/plugins/sonarqube-comm
 ENV SONAR_CE_JAVAADDITIONALOPTS="-javaagent:./extensions/plugins/sonarqube-community-branch-plugin-${PLUGIN_VERSION}.jar=ce"
 ```
 
-
 ## Terraform
 
 Terraformを用いた構築方法を記述する。特段特別なことはしていないため。コードの解説は省略する。
@@ -338,7 +337,6 @@ GitLabとの連携を設定する。
 
 ### 個人設定
 
-
 1. GitLabでPersonal Access Token発行
     - (Preferences) -> (Access Tokens)
     - `read_api` にチェックして発行
@@ -370,10 +368,6 @@ GitLabとのOAuth連携方法を記述する。
 また、構築手順や設定方法についても、画像をもとに詳細に述べた。
 概要に記述した通り、新しい内容はないと思うが、製品採用の検討の際に役だてば幸いである。
 
-<!-- Footnotes -->
-
-[^sonar-qube-oss]: SonarQubeはクラウド版が[Argo Rolllouts][argo-rollouts]などのOSSでも利用されているようだ。
-
 <!-- References -->
 
 [toyamagu-2021/terraform-aws-gitlab-sonarqube]: https://github.com/toyamagu-2021/terraform-aws-gitlab-sonarqube
@@ -396,3 +390,7 @@ GitLabとのOAuth連携方法を記述する。
 [sonarqube-gitlab-integration]: https://docs.sonarqube.org/latest/analysis/gitlab-integration/
 [sonarqube-gitlab-integration-oauth]: https://docs.sonarqube.org/latest/instance-administration/authentication/gitlab/
 [docker-sonarqube-with-community-branch-plugin]: https://hub.docker.com/r/mc1arke/sonarqube-with-community-branch-plugin/tags
+
+<!-- Footnotes -->
+
+[^sonar-qube-oss]: SonarQubeはクラウド版が[Argo Rolllouts][argo-rollouts]などのOSSでも利用されているようだ。
