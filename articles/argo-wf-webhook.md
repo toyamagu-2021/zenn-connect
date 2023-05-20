@@ -19,6 +19,10 @@ ngorkはローカルホストに立てた環境を簡単にインターネット
 
 検証に用いたコードはすべて [GitHubリポジトリ][toyamagu-2021-argo-workflows-sandbox]上に公開しており、簡単に各々の環境で試すことができる。
 
+以下に概要図を示す。
+
+![architecture-diagram](/images/argo-wf-webhook/architecture-diagram.drawio.png)
+
 ## イントロダクション
 
 ### Argo Workflows
@@ -107,6 +111,7 @@ GitHubとの連携を始める前に、まずは `curl` でエンドポイント
 注意点は以下の通り。
 
 1. `ARGO_GITHUB_TOKEN` は先程とは別のSAのトークンを取得している。 `github.com` というSAが `github.com` のWebhookと紐づくため、これを用いた。
+1. WorkflowEventBinding `workflow-templates.workflow-event-binding.yaml` では `event.selector: "true"` としてすべてのリクエストに対して発火するようにしているが、ヘッダーなどで条件を制御することができる。
 
 ## GitHub WebhookでWorkflowをトリガーする
 
