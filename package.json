@@ -18,6 +18,6 @@
   },
   "homepage": "https://github.com/toyamagu-2021/zenn-connect#readme",
   "dependencies": {
-    "zenn-cli": "^0.1.131"
+    "zenn-cli": "^0.1.143"
   }
 }

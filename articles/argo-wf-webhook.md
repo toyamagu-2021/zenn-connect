@@ -6,7 +6,6 @@ topics: ["argo", "github"]
 published: true
 ---
 
-
 ## 概要
 
 本記事ではArgo Workflowsの Workflow を GitHub Webhookでトリガーする方法を紹介する。  
@@ -53,7 +52,7 @@ ArgoEventsと連携する場合、 [EventSources][argo-events-event-sources] と
 
 GitHub上のイベントを外部のエンドポイントに通知するWebhook。
 ArgoWFでの連携だと、PRをソースとしたCIトリガー（イメージビルド、E2Eテスト、マイグレーションテスト等）が考えられるだろうか。
-公式ドキュメントでは、以下の部分の記事を参考にした [参考1][argo-wf-doc-events], [参考2][argo-wf-doc-webhooks]。 
+公式ドキュメントでは、以下の部分の記事を参考にした [参考1][argo-wf-doc-events], [参考2][argo-wf-doc-webhooks]。
 
 ## ローカルクラスタへのArgoWFのインストール
 
