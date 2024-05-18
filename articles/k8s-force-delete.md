@@ -1,5 +1,5 @@
 ---
-title: "KubernetesでPodをforce --grace-period=0でdeleteしてもプロセスは生き残ってしまうので、--nowを使おうという話"
+title: "KubernetesでのPod force deleteは--grace-period=0でなく、--nowを使おうという話"
 emoji: "🌸"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Kubernetes"]
