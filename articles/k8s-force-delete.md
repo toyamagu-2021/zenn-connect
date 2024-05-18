@@ -1,9 +1,9 @@
 ---
-title: "KubernetesでのPod force deleteは--grace-period=0でなく、--nowを使おうという話"
+title: "Pod force deleteは `force --grace-period=0` でなく、 `--now` を使おうという話"
 emoji: "🌸"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Kubernetes"]
-published: true
+published: false
 ---
 
 ## Abstract
@@ -25,6 +25,7 @@ K8sでPodを削除したいとき、 `kubectl delete pod <pod-name> --force --gr
 Issueとしては、1. evictされたときにもprocessが生き残ってしまう[^115819]、ものや、 2. `--force --grace-period=0` を設定してもprocessが生き残ってしまう[^120449] あたりに記載されている
 1.に対してはMergeされたPRがあり [^119570] [^124063] 、v1.31あたりで解消されていそう。
 2.に対してはまだMergeされていない [^120449] が、上記PR [^124063] で一緒に治っているようにも見える。。。？
+たぶん `--force` 自体が原因な気もするので、もしかしたらだめかも。
 
 ### Root cause
 
@@ -78,6 +79,9 @@ pod.create:
 pod.delete.force:
 	date; kubectl delete po nginx --force	--grace-period=0
 
+pod.delete.not-force:
+	date; kubectl delete po nginx --grace-period=0
+
 pod.delete.now:
 	date; kubectl delete po nginx --now
 
@@ -99,7 +103,7 @@ docker.ps:
 
 ```console
 $ make pod.delete.force
-date; kubectl delete po nginx --force   --grace-period=0
+date; kubectl delete po nginx --force --grace-period=0
 Sun May 19 01:51:31 JST 2024
 Warning: Immediate deletion does not wait for confirmation that the running resource has been terminated. The resource may continue to run on the cluster indefinitely.
 pod "nginx" force deleted
@@ -177,6 +181,9 @@ root        6062    5836  0 16:56 pts/1    00:00:00 grep sleep 12345
 
 上記のように、52秒時点で消せば54秒時点で消している。したがって、 `--now` だと（ほぼ）即座にプロセスもkillされる
 このふるまいはv1.22~v1.30まで同じである
+ちなみに `--force` をつけなければ、プロセスも消える。したがって、`--force` でAPI Serverから消してしまうのが問題なのだと思われる。
+CRIの都合上 `gracePeriod=0` にはできず、`gracePeriod=1` に強制的に設定している [Ref](https://github.com/kubernetes/kubernetes/blob/a31030543c47aac36cf323b885cfb6d8b0a2435f/pkg/kubelet/pod_workers.go#L1004-L1007)。
+なので、 `--grace-period=0` も `--grace-period=1` も本質的な違いはない。これが根本的な問題なのだと思われる。
 
 ## Summery
 
