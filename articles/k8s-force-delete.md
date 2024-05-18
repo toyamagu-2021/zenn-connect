@@ -3,7 +3,7 @@ title: "KubernetesでのPod force deleteは--grace-period=0でなく、--nowを�
 emoji: "🌸"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Kubernetes"]
-published: false
+published: true
 ---
 
 ## Abstract
