@@ -13,7 +13,7 @@ Kubernetes (K8s) を運用する上でNodeは意識しなくて良いもので�
 
 * iptablesなどのNW問題
 * Node横断のログ調査
-* ノードレベルでインストーするミドルウェアの調査
+* ノードレベルでインストールするミドルウェアの調査
 
 本記事ではNodeに入って調査する方法や、ついでにPodに入る方法を共有します. 具体例として以下を紹介します
 
@@ -59,7 +59,7 @@ Nodeに入る場合もほぼ同様である [^kubectl-node-debug].
 
 AWSに問い合わせをすると提出をお願いされる [^eks-log-collector] を使ってログを取得する方法.
 
-1. `kubectl debug -iti nodes/<node_name> --image amazon/aws-cli -- bash`
+1. `kubectl debug -it nodes/<node_name> --image amazon/aws-cli -- bash`
 1. `chroot /host`
 2. `curl -O https://raw.githubusercontent.com/awslabs/amazon-eks-ami/main/log-collector-script/linux/eks-log-collector.sh`
 3. `bash eks-log-collector.sh`
