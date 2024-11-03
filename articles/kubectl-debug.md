@@ -1,5 +1,5 @@
 ---
-title: "Kubectl debugを使ってPodやNodeを気軽にdebugしよう ~iptablesやEKS Log Collectorの実例を用いて~"
+title: "kubectl debugを用いてiptablesやEKS Log Collector実行する"
 emoji: "🌸"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Kubernetes", "EKS"]
