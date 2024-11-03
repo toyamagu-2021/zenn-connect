@@ -64,10 +64,10 @@ AWSに問い合わせをすると提出をお願いされる [^eks-log-collector
 2. `curl -O https://raw.githubusercontent.com/awslabs/amazon-eks-ami/main/log-collector-script/linux/eks-log-collector.sh`
 3. `bash eks-log-collector.sh`
 4. ログファイルをコピーする。
-  * `aws s3 cp` でコピーする方法(おすすめ): `aws s3 cp  /host/var/log/<log_file_name> s3://<bucket_name>/`
-  * `kubectl cp` でコピーする方法
-    * `yum install -y tar`
-    * debugしているコンソールに戻って、 `kubectl cp <debug_pod_name>:/host/var/log/<log_file_name> ./<log_file_name>`
+    * `aws s3 cp` でコピーする方法(おすすめ): `aws s3 cp  /host/var/log/<log_file_name> s3://<bucket_name>/`
+    * `kubectl cp` でコピーする方法
+        * `yum install -y tar`
+        * debugしているコンソールに戻って、 `kubectl cp <debug_pod_name>:/host/var/log/<log_file_name> ./<log_file_name>`
 5. AWSサポートに解析をお願いする
 
 #### Check iptables
@@ -75,9 +75,9 @@ AWSに問い合わせをすると提出をお願いされる [^eks-log-collector
 iptablesなどをチェックしたい時は profile をつける
 
 1. `k debug -it nodes/<node_name> --image alpine --profile=sysadmin -- sh`
-  * `netadmin` で十分
-1. `apk add iptables`
-1. `iptables -L -n -v`
+    * `netadmin` で十分
+2. `apk add iptables`
+3. `iptables -L -n -v`
 
 ```shell
 # iptables -nL -v
