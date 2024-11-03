@@ -1,5 +1,5 @@
 ---
-title: "kubectl debugを用いてiptablesやEKS Log Collector実行する"
+title: "kubectl debugを用いてiptablesやEKS Log Collectorを実行する"
 emoji: "🌸"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Kubernetes", "EKS"]
